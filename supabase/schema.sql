@@ -46,10 +46,14 @@ create table if not exists public.cars (
   safety integer not null default 3 check (safety between 1 and 5),
   performance integer not null default 3 check (performance between 1 and 5),
   maintenance integer not null default 3 check (maintenance between 1 and 5),
+  features text[] not null default '{}',
   created_by uuid not null default auth.uid() references auth.users(id),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Upgrade path for databases created before the equipment filter existed.
+alter table public.cars add column if not exists features text[] not null default '{}';
 
 create table if not exists public.favorites (
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -138,6 +142,8 @@ create policy "users remove own favorites"
 create index if not exists cars_created_at_idx on public.cars (created_at desc);
 create index if not exists cars_price_idx on public.cars (price_ils);
 create index if not exists favorites_user_id_idx on public.favorites (user_id);
+create index if not exists cars_make_model_idx on public.cars (make, model);
+create index if not exists cars_features_idx on public.cars using gin (features);
 
 -- Invite each approved email after they have signed in once with the magic link.
 -- Run once per person, replacing the example email:

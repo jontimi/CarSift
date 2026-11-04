@@ -1,5 +1,7 @@
 const CONFIG = window.CARSIFT_CONFIG || {};
-const LOCAL_KEY = "carsift-local-v1";
+const LOCAL_KEY = "carsift-local-v2";
+const LEGACY_LOCAL_KEY = "carsift-local-v1";
+const FAV_MODE_KEY = "carsift-favorites-mode";
 const SUPABASE_JS = "https://esm.sh/@supabase/supabase-js@2.49.1";
 const TESSERACT_JS = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/+esm";
 
@@ -16,19 +18,65 @@ const DEFAULT_PROFILE = {
   excluded_terms: [],
 };
 
-const SAMPLE_CARS = [
-  { id: "demo-1", title: "Toyota Corolla Hybrid", make: "Toyota", model: "Corolla", year: 2022, price_ils: 112000, mileage_km: 54000, owners: 1, body_type: "משפחתית", fuel_type: "היברידי", transmission: "אוטומטית", engine: "1.8", trim: "Sun", city: "תל אביב", source_url: "", notes: "רכב הדגמה — יש לאמת את הפרטים מול המודעה.", reliability: 5, economy: 5, safety: 4, performance: 3, maintenance: 4, created_by: "local", created_at: new Date().toISOString() },
-  { id: "demo-2", title: "Kia Niro Hybrid", make: "Kia", model: "Niro", year: 2021, price_ils: 105000, mileage_km: 68000, owners: 2, body_type: "קרוסאובר", fuel_type: "היברידי", transmission: "אוטומטית", engine: "1.6", trim: "EX", city: "חיפה", source_url: "", notes: "רכב הדגמה — יש לאמת את הפרטים מול המודעה.", reliability: 4, economy: 5, safety: 4, performance: 3, maintenance: 4, created_by: "local", created_at: new Date().toISOString() },
-  { id: "demo-3", title: "Mazda 3 Comfort", make: "Mazda", model: "3", year: 2020, price_ils: 89000, mileage_km: 76000, owners: 2, body_type: "משפחתית", fuel_type: "בנזין", transmission: "אוטומטית", engine: "2.0", trim: "Comfort", city: "ירושלים", source_url: "", notes: "רכב הדגמה — יש לאמת את הפרטים מול המודעה.", reliability: 4, economy: 3, safety: 4, performance: 4, maintenance: 3, created_by: "local", created_at: new Date().toISOString() },
+// Equipment options. `match` = words used to detect the feature in pasted listing text.
+const FEATURES = [
+  { key: "sunroof", label: "גג שמש / פנורמי", match: ["גג שמש", "גג נפתח", "פנורמי", "sunroof"] },
+  { key: "leather", label: "מושבי עור", match: ["עור", "leather"] },
+  { key: "reverse_camera", label: "מצלמת רוורס", match: ["מצלמת רוורס", "מצלמה אחורית", "מצלמת נסיעה לאחור"] },
+  { key: "adaptive_cruise", label: "בקרת שיוט אדפטיבית", match: ["שיוט אדפטיבי", "בקרת שיוט אדפטיבית", "acc"] },
+  { key: "parking_sensors", label: "חיישני חניה", match: ["חיישני חניה", "חיישני רוורס"] },
+  { key: "carplay", label: "Apple CarPlay / Android Auto", match: ["carplay", "android auto", "קארפליי"] },
+  { key: "blind_spot", label: "ניטור שטחים מתים", match: ["שטחים מתים", "blind spot"] },
+  { key: "lane_assist", label: "סייען שמירת נתיב", match: ["שמירת נתיב", "סטייה מנתיב", "lane"] },
+  { key: "heated_seats", label: "מושבים מחוממים", match: ["מושבים מחוממים", "חימום מושבים"] },
+  { key: "keyless", label: "כניסה והתנעה ללא מפתח", match: ["ללא מפתח", "keyless", "סמארט קי"] },
 ];
+const FEATURE_LABEL = Object.fromEntries(FEATURES.map((f) => [f.key, f.label]));
+
+// Fuel pills group the detailed fuel values stored on each car.
+const FUEL_GROUPS = [
+  { key: "gasoline", label: "בנזין", values: ["בנזין", "גפ״מ"] },
+  { key: "diesel", label: "דיזל", values: ["דיזל"] },
+  { key: "hybrid", label: "היברידי", values: ["היברידי", "היברידי נטען"] },
+  { key: "ev", label: "חשמלי", values: ["חשמלי"] },
+];
+
+const DEMO_NOTE = "רכב הדגמה — יש לאמת את הפרטים מול המודעה.";
+// [make, model, trim, year, price, km, hand, body, fuel, gear, engine, city, ratings r/e/s/p/m, features]
+const SAMPLE_ROWS = [
+  ["Toyota", "Corolla", "Hybrid Sun", 2022, 112000, 54000, 1, "משפחתית", "היברידי", "אוטומטית", "1.8", "תל אביב", [5, 5, 4, 3, 4], ["reverse_camera", "adaptive_cruise", "carplay", "lane_assist", "keyless"]],
+  ["Toyota", "RAV4", "Hybrid Experience", 2021, 159000, 71000, 2, "רכב פנאי", "היברידי", "אוטומטית", "2.5", "ראשון לציון", [5, 4, 5, 4, 4], ["reverse_camera", "adaptive_cruise", "carplay", "blind_spot", "lane_assist", "keyless", "leather", "heated_seats"]],
+  ["Kia", "Niro", "Hybrid EX", 2021, 105000, 68000, 2, "קרוסאובר", "היברידי", "אוטומטית", "1.6", "חיפה", [4, 5, 4, 3, 4], ["reverse_camera", "adaptive_cruise", "carplay", "parking_sensors"]],
+  ["Kia", "Sportage", "Urban", 2020, 99000, 92000, 2, "רכב פנאי", "בנזין", "אוטומטית", "1.6", "באר שבע", [4, 3, 4, 3, 3], ["reverse_camera", "carplay", "parking_sensors", "heated_seats"]],
+  ["Mazda", "3", "Comfort", 2020, 89000, 76000, 2, "משפחתית", "בנזין", "אוטומטית", "2.0", "ירושלים", [4, 3, 4, 4, 3], ["reverse_camera", "carplay", "blind_spot"]],
+  ["Hyundai", "i30", "Prime", 2019, 72000, 104000, 3, "האצ׳בק", "בנזין", "אוטומטית", "1.4", "נתניה", [4, 3, 4, 3, 4], ["reverse_camera", "carplay", "parking_sensors"]],
+  ["Hyundai", "Ioniq 5", "Premium", 2022, 168000, 42000, 1, "קרוסאובר", "חשמלי", "אוטומטית", "", "הרצליה", [4, 5, 5, 5, 4], ["sunroof", "leather", "reverse_camera", "adaptive_cruise", "blind_spot", "lane_assist", "heated_seats", "keyless", "carplay"]],
+  ["Tesla", "Model 3", "Long Range", 2021, 139000, 63000, 1, "סדאן", "חשמלי", "אוטומטית", "", "פתח תקווה", [4, 5, 5, 5, 3], ["sunroof", "leather", "reverse_camera", "adaptive_cruise", "blind_spot", "lane_assist", "heated_seats", "keyless"]],
+  ["Skoda", "Octavia", "Style TDI", 2019, 84000, 128000, 2, "סטיישן", "דיזל", "רובוטית", "2.0", "רחובות", [4, 4, 4, 3, 3], ["reverse_camera", "adaptive_cruise", "parking_sensors", "carplay", "heated_seats"]],
+  ["Peugeot", "3008", "Allure BlueHDi", 2020, 109000, 88000, 2, "רכב פנאי", "דיזל", "אוטומטית", "1.5", "חדרה", [3, 4, 4, 3, 3], ["sunroof", "reverse_camera", "adaptive_cruise", "carplay", "lane_assist"]],
+  ["Mitsubishi", "Outlander", "PHEV Instyle", 2020, 118000, 82000, 2, "רכב פנאי", "היברידי נטען", "רציפה", "2.4", "מודיעין", [4, 4, 4, 3, 3], ["sunroof", "leather", "reverse_camera", "adaptive_cruise", "heated_seats", "keyless"]],
+  ["Suzuki", "Swift", "GLX", 2021, 69000, 39000, 1, "סופר מיני", "בנזין", "אוטומטית", "1.2", "אשדוד", [5, 4, 3, 2, 5], ["reverse_camera", "carplay"]],
+  ["Seat", "Leon", "FR", 2021, 104000, 58000, 1, "האצ׳בק", "בנזין", "רובוטית", "1.5", "כפר סבא", [3, 3, 4, 4, 3], ["reverse_camera", "adaptive_cruise", "carplay", "lane_assist", "parking_sensors"]],
+  ["BYD", "Atto 3", "Comfort", 2023, 129000, 28000, 1, "קרוסאובר", "חשמלי", "אוטומטית", "", "חולון", [3, 5, 5, 4, 4], ["sunroof", "leather", "reverse_camera", "adaptive_cruise", "carplay", "lane_assist", "keyless"]],
+];
+const SAMPLE_CARS = SAMPLE_ROWS.map(([make, model, trim, year, price_ils, mileage_km, owners, body_type, fuel_type, transmission, engine, city, [reliability, economy, safety, performance, maintenance], features], index) => ({
+  id: `demo-${index + 1}`, title: `${make} ${model}`, make, model, trim, year, price_ils, mileage_km, owners, body_type, fuel_type, transmission, engine, city,
+  source_url: "", notes: DEMO_NOTE, reliability, economy, safety, performance, maintenance, features, created_by: "local", created_at: new Date(Date.now() - index * 3600e3).toISOString(),
+}));
+
+const EMPTY_FILTERS = () => ({ makes: [], models: [], priceMin: null, priceMax: null, yearMin: null, mileageMax: null, fuels: [], handMax: null, features: [] });
 
 const state = {
   view: "cars",
   cars: [],
   profile: { ...DEFAULT_PROFILE, weights: { ...DEFAULT_PROFILE.weights } },
   favorites: new Set(),
+  favoritesMode: "local",
   compareIds: new Set(),
-  filter: "all",
+  drawerOpen: false,
+  filters: EMPTY_FILTERS(),
+  filtersOpen: false,
+  sort: "score",
   search: "",
   modal: null,
   draft: {},
@@ -96,13 +144,14 @@ function defaultCarShape(car) {
     engine: car.engine || "", trim: car.trim || "", city: car.city || "", source_url: car.source_url || "",
     notes: car.notes || "", reliability: Number(car.reliability || 3), economy: Number(car.economy || 3),
     safety: Number(car.safety || 3), performance: Number(car.performance || 3), maintenance: Number(car.maintenance || 3),
+    features: Array.isArray(car.features) ? car.features.filter((key) => FEATURE_LABEL[key]) : [],
     created_by: car.created_by || "local", created_at: car.created_at || new Date().toISOString(),
   };
 }
 
 function readLocal() {
   try {
-    const saved = JSON.parse(localStorage.getItem(LOCAL_KEY) || "null");
+    const saved = JSON.parse(localStorage.getItem(LOCAL_KEY) || localStorage.getItem(LEGACY_LOCAL_KEY) || "null");
     if (saved) {
       state.cars = (saved.cars || []).map(defaultCarShape);
       state.profile = { ...DEFAULT_PROFILE, ...(saved.profile || {}), weights: { ...DEFAULT_PROFILE.weights, ...(saved.profile?.weights || {}) } };
@@ -116,8 +165,49 @@ function readLocal() {
 }
 
 function saveLocal() {
-  if (state.cloud) return;
-  localStorage.setItem(LOCAL_KEY, JSON.stringify({ cars: state.cars, profile: state.profile, favorites: [...state.favorites] }));
+  try {
+    if (state.cloud) {
+      // Cloud mode keeps cars/profile in Supabase; favorites may still live on this device.
+      if (state.favoritesMode === "local" && state.user) localStorage.setItem(localFavoritesKey(), JSON.stringify([...state.favorites]));
+      return;
+    }
+    localStorage.setItem(LOCAL_KEY, JSON.stringify({ cars: state.cars, profile: state.profile, favorites: [...state.favorites] }));
+  } catch { /* Storage can be full or blocked (private mode). The app keeps working in memory. */ }
+}
+
+const localFavoritesKey = () => `carsift-favorites-${state.user?.id || "guest"}`;
+
+function readLocalFavorites() {
+  try { return new Set(JSON.parse(localStorage.getItem(localFavoritesKey()) || "[]")); } catch { return new Set(); }
+}
+
+// Favorites in cloud mode: "cloud" (Supabase, synced across devices) or "local" (this browser only).
+function initialFavoritesMode() {
+  let saved = null;
+  try { saved = localStorage.getItem(FAV_MODE_KEY); } catch { /* ignore */ }
+  const mode = saved || CONFIG.FAVORITES_STORAGE || "cloud";
+  return mode === "local" ? "local" : "cloud";
+}
+
+async function setFavoritesMode(mode) {
+  if (!state.cloud || mode === state.favoritesMode) return;
+  try {
+    if (mode === "cloud" && state.favorites.size) {
+      const rows = [...state.favorites].filter((id) => state.cars.some((car) => car.id === id)).map((car_id) => ({ user_id: state.user.id, car_id }));
+      if (rows.length) {
+        const { error } = await state.supabase.from("favorites").upsert(rows, { onConflict: "user_id,car_id", ignoreDuplicates: true });
+        if (error) throw error;
+      }
+      const { data, error } = await state.supabase.from("favorites").select("car_id").eq("user_id", state.user.id);
+      if (error) throw error;
+      state.favorites = new Set((data || []).map((item) => item.car_id));
+    }
+    state.favoritesMode = mode;
+    try { localStorage.setItem(FAV_MODE_KEY, mode); } catch { /* ignore */ }
+    saveLocal();
+    render();
+    showToast(mode === "cloud" ? "המועדפים מסונכרנים עכשיו לחשבון" : "המועדפים נשמרים עכשיו במכשיר הזה בלבד");
+  } catch (error) { showToast(`לא הצלחנו להחליף מצב שמירה: ${error.message || "נסו שוב"}`); }
 }
 
 function toProfileRow(profile) {
@@ -142,6 +232,7 @@ async function initialize() {
   }
   try {
     const { createClient } = await import(SUPABASE_JS);
+    state.favoritesMode = initialFavoritesMode();
     state.supabase = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
     state.cloud = true;
     const { data, error } = await state.supabase.auth.getSession();
@@ -191,13 +282,13 @@ async function loadCloud() {
     const [carsResult, profileResult, favoritesResult] = await Promise.all([
       state.supabase.from("cars").select("*").order("created_at", { ascending: false }),
       state.supabase.from("profiles").select("*").eq("id", state.user.id).maybeSingle(),
-      state.supabase.from("favorites").select("car_id").eq("user_id", state.user.id),
+      state.favoritesMode === "cloud" ? state.supabase.from("favorites").select("car_id").eq("user_id", state.user.id) : Promise.resolve({ data: null, error: null }),
     ]);
     if (carsResult.error) throw carsResult.error;
     if (profileResult.error) throw profileResult.error;
     if (favoritesResult.error) throw favoritesResult.error;
     state.cars = (carsResult.data || []).map(defaultCarShape);
-    state.favorites = new Set((favoritesResult.data || []).map((item) => item.car_id));
+    state.favorites = state.favoritesMode === "cloud" ? new Set((favoritesResult.data || []).map((item) => item.car_id)) : readLocalFavorites();
     state.profile = profileResult.data ? fromProfileRow(profileResult.data) : { ...DEFAULT_PROFILE, display_name: state.user.email?.split("@")[0] || "" };
     if (!profileResult.data) {
       const { error } = await state.supabase.from("profiles").insert({ id: state.user.id, ...toProfileRow(state.profile) });
@@ -247,7 +338,8 @@ function renderShell() {
   const favCount = state.favorites.size;
   const compareCount = state.compareIds.size;
   const identity = state.cloud ? (state.user?.email || "החשבון שלי") : "מצב הדגמה";
-  return `<div class="app-shell">
+  return `<div class="app-shell ${state.compareIds.size && state.view !== "compare" ? "has-drawer" : ""}">
+    <div class="sidebar-backdrop" data-action="mobile-menu"></div>
     <aside class="sidebar">
       <a class="brand" href="#" data-view="cars"><span class="brand-mark">C</span><span class="brand-copy"><b>CarSift</b><small>החלטה טובה מתחילה כאן</small></span></a>
       <div class="workspace-label">המרחב שלי</div>
@@ -263,6 +355,7 @@ function renderShell() {
     <nav class="mobile-nav">${navButton("cars", "רכבים", "cars")}${navButton("compare", "השוואה", "compare", compareCount)}${navButton("favorites", "מועדפים", "heart", favCount)}${navButton("profile", "פרופיל", "profile")}</nav>
     <input id="json-file" type="file" accept="application/json,.json" hidden />
     <div class="toast" role="status"></div>
+    ${state.loading ? "" : renderCompareDrawer()}
     ${state.modal ? renderModal() : ""}
     ${state.authRequired ? renderAuthGate() : ""}
     ${state.authDenied ? renderDeniedGate() : ""}
@@ -275,24 +368,150 @@ function renderView() {
   return renderCars(state.view === "favorites");
 }
 
-function renderCars(favoritesOnly = false) {
-  let list = state.cars.filter((car) => !favoritesOnly || state.favorites.has(car.id));
-  if (state.filter === "favorites" && !favoritesOnly) list = list.filter((car) => state.favorites.has(car.id));
-  if (state.filter === "high") list = list.filter((car) => scoreCar(car) >= 82);
-  if (state.search.trim()) {
-    const query = state.search.trim().toLowerCase();
-    list = list.filter((car) => `${car.title} ${car.make} ${car.model} ${car.year || ""} ${car.city} ${car.body_type}`.toLowerCase().includes(query));
+/* ---------- Filtering ---------- */
+const fuelGroupOf = (car) => FUEL_GROUPS.find((group) => group.values.includes(car.fuel_type))?.key || "";
+const km = (value) => value ? `${number(value)} ק״מ` : "—";
+const hand = (value) => value ? `יד ${number(value)}` : "—";
+const roundDown = (value, step) => Math.floor(value / step) * step;
+const roundUp = (value, step) => Math.ceil(value / step) * step;
+
+function dataBounds() {
+  const prices = state.cars.map((car) => car.price_ils).filter(Boolean);
+  const years = state.cars.map((car) => car.year).filter(Boolean);
+  const mileages = state.cars.map((car) => car.mileage_km).filter((value) => value != null);
+  return {
+    priceMin: prices.length ? roundDown(Math.min(...prices), 5000) : 0,
+    priceMax: prices.length ? roundUp(Math.max(...prices), 5000) : 300000,
+    years: [...new Set(years)].sort((a, b) => b - a),
+    mileageMax: mileages.length ? Math.max(roundUp(Math.max(...mileages), 10000), 10000) : 300000,
+  };
+}
+
+function activeFilterCount() {
+  const f = state.filters;
+  return f.makes.length + f.models.length + f.fuels.length + f.features.length
+    + (f.priceMin != null || f.priceMax != null ? 1 : 0) + (f.yearMin ? 1 : 0) + (f.mileageMax != null ? 1 : 0) + (f.handMax ? 1 : 0);
+}
+
+const modelKey = (car) => `${car.make}|${car.model}`;
+
+function matchesFilters(car) {
+  const f = state.filters;
+  if (f.makes.length && !f.makes.includes(car.make)) return false;
+  if (f.models.length) {
+    // A model filter only narrows the makes it belongs to; other selected makes stay fully visible.
+    const makesWithModels = new Set(f.models.map((key) => key.split("|")[0]));
+    if (makesWithModels.has(car.make) && !f.models.includes(modelKey(car))) return false;
+    if (!f.makes.length && !makesWithModels.has(car.make)) return false;
   }
+  if (f.priceMin != null && !(car.price_ils >= f.priceMin)) return false;
+  if (f.priceMax != null && !(car.price_ils && car.price_ils <= f.priceMax)) return false;
+  if (f.yearMin && !(car.year >= f.yearMin)) return false;
+  if (f.mileageMax != null && !(car.mileage_km != null && car.mileage_km <= f.mileageMax)) return false;
+  if (f.fuels.length && !f.fuels.includes(fuelGroupOf(car))) return false;
+  if (f.handMax && !(car.owners && car.owners <= f.handMax)) return false;
+  if (f.features.length && !f.features.every((key) => car.features.includes(key))) return false;
+  return true;
+}
+
+const SORTS = {
+  score: ["התאמה הגבוהה ביותר", (a, b) => scoreCar(b) - scoreCar(a)],
+  price_asc: ["מחיר: מהנמוך לגבוה", (a, b) => (a.price_ils ?? Infinity) - (b.price_ils ?? Infinity)],
+  price_desc: ["מחיר: מהגבוה לנמוך", (a, b) => (b.price_ils ?? -1) - (a.price_ils ?? -1)],
+  year_desc: ["שנתון: החדש ביותר", (a, b) => (b.year ?? 0) - (a.year ?? 0)],
+  km_asc: ["קילומטראז׳: הנמוך ביותר", (a, b) => (a.mileage_km ?? Infinity) - (b.mileage_km ?? Infinity)],
+  newest: ["נוספו לאחרונה", (a, b) => String(b.created_at).localeCompare(String(a.created_at))],
+};
+
+function visibleCars(favoritesOnly = state.view === "favorites") {
+  const query = state.search.trim().toLowerCase();
+  return state.cars
+    .filter((car) => !favoritesOnly || state.favorites.has(car.id))
+    .filter(matchesFilters)
+    .filter((car) => !query || `${car.title} ${car.make} ${car.model} ${car.trim} ${car.year || ""} ${car.city} ${car.body_type}`.toLowerCase().includes(query))
+    .sort((SORTS[state.sort] || SORTS.score)[1]);
+}
+
+/* ---------- Filter panel ---------- */
+function chip(group, value, label, count = null) {
+  const on = state.filters[group].includes(value);
+  return `<button type="button" class="chip ${on ? "on" : ""}" aria-pressed="${on}" data-filter-toggle="${group}" data-value="${html(value)}">${on ? icon("check", 13) : ""}<span>${html(label)}</span>${count != null ? `<small>${count}</small>` : ""}</button>`;
+}
+
+function renderFilterPanel() {
+  const f = state.filters;
+  const b = dataBounds();
+  const count = (fn) => state.cars.filter(fn).length;
+  const makes = [...new Set(state.cars.map((car) => car.make).filter(Boolean))].sort((a, z) => a.localeCompare(z));
+  const modelSource = state.cars.filter((car) => car.model && (!f.makes.length || f.makes.includes(car.make)));
+  const models = [...new Map(modelSource.map((car) => [modelKey(car), car])).values()].sort((a, z) => modelKey(a).localeCompare(modelKey(z)));
+  const lo = f.priceMin ?? b.priceMin;
+  const hi = f.priceMax ?? b.priceMax;
+  const span = Math.max(1, b.priceMax - b.priceMin);
+  const mileage = f.mileageMax ?? b.mileageMax;
+  const active = activeFilterCount();
+  return `<div class="filter-head"><h2>${icon("search", 17)} סינון</h2>${active ? `<button type="button" class="text-button small" data-action="clear-filters">ניקוי (${active})</button>` : ""}<button type="button" class="icon-button filter-close" aria-label="סגירת סינון" data-action="toggle-filters">${icon("close", 18)}</button></div>
+    <div class="filter-scroll">
+      <section class="filter-group"><h3>יצרן</h3><div class="chip-wrap">${makes.map((make) => chip("makes", make, make, count((car) => car.make === make))).join("") || `<p class="muted">אין עדיין יצרנים במאגר</p>`}</div></section>
+      <section class="filter-group"><h3>דגם ${f.makes.length ? "" : `<small>כל היצרנים</small>`}</h3><div class="chip-wrap">${models.map((car) => chip("models", modelKey(car), f.makes.length === 1 ? car.model : `${car.make} ${car.model}`, count((c) => modelKey(c) === modelKey(car)))).join("") || `<p class="muted">אין דגמים</p>`}</div></section>
+      <section class="filter-group"><h3>טווח מחיר</h3><div class="range-values"><output id="price-lo-label">${money(lo)}</output><span>—</span><output id="price-hi-label">${money(hi)}</output></div>
+        <div class="dual-range" style="--lo:${((lo - b.priceMin) / span) * 100}%;--hi:${((hi - b.priceMin) / span) * 100}%"><div class="dual-track"><i></i></div><input id="f-price-min" type="range" min="${b.priceMin}" max="${b.priceMax}" step="1000" value="${lo}" aria-label="מחיר מינימלי" /><input id="f-price-max" type="range" min="${b.priceMin}" max="${b.priceMax}" step="1000" value="${hi}" aria-label="מחיר מקסימלי" /></div>
+        <div class="range-scale"><span>${money(b.priceMin)}</span><span>${money(b.priceMax)}</span></div></section>
+      <section class="filter-group"><h3>שנתון מינימלי</h3><select id="f-year" class="sort-select full"><option value="">כל השנים</option>${b.years.map((year) => `<option value="${year}" ${f.yearMin === year ? "selected" : ""}>${year} ומעלה</option>`).join("")}</select></section>
+      <section class="filter-group"><h3>קילומטראז׳ מקסימלי</h3><div class="range-values"><output id="km-label">${f.mileageMax == null ? "ללא הגבלה" : `עד ${km(mileage)}`}</output></div><input id="f-mileage" class="single-range" type="range" min="0" max="${b.mileageMax}" step="5000" value="${mileage}" style="--fill:${(mileage / b.mileageMax) * 100}%" aria-label="קילומטראז׳ מקסימלי" /><div class="range-scale"><span>0</span><span>${km(b.mileageMax)}</span></div></section>
+      <section class="filter-group"><h3>הנעה</h3><div class="pill-row">${FUEL_GROUPS.map((group) => chip("fuels", group.key, group.label, count((car) => fuelGroupOf(car) === group.key))).join("")}</div></section>
+      <section class="filter-group"><h3>יד</h3><div class="segmented">${[[null, "הכל"], [1, "יד 1"], [2, "עד 2"], [3, "עד 3"]].map(([value, label]) => `<button type="button" class="${f.handMax === value ? "on" : ""}" data-hand="${value ?? ""}">${label}</button>`).join("")}</div></section>
+      <section class="filter-group"><h3>אבזור <small>כל הנבחרים</small></h3><div class="check-list">${FEATURES.map((feature) => `<label class="check-row"><input type="checkbox" data-feature-filter="${feature.key}" ${f.features.includes(feature.key) ? "checked" : ""} /><span class="box">${icon("check", 12)}</span><span>${feature.label}</span><small>${count((car) => car.features.includes(feature.key))}</small></label>`).join("")}</div></section>
+    </div>
+    <div class="filter-foot"><button type="button" class="primary-button full-button" data-action="toggle-filters">הצגת <span data-result-count>${number(visibleCars().length)}</span> רכבים</button></div>`;
+}
+
+function activeChips() {
+  const f = state.filters;
+  const out = [];
+  f.makes.forEach((value) => out.push(["makes", value, value]));
+  f.models.forEach((value) => out.push(["models", value, value.replace("|", " ")]));
+  if (f.priceMin != null || f.priceMax != null) out.push(["price", "", `${money(f.priceMin ?? dataBounds().priceMin)} – ${money(f.priceMax ?? dataBounds().priceMax)}`]);
+  if (f.yearMin) out.push(["yearMin", "", `מ-${f.yearMin}`]);
+  if (f.mileageMax != null) out.push(["mileageMax", "", `עד ${km(f.mileageMax)}`]);
+  f.fuels.forEach((value) => out.push(["fuels", value, FUEL_GROUPS.find((g) => g.key === value)?.label || value]));
+  if (f.handMax) out.push(["handMax", "", f.handMax === 1 ? "יד 1" : `עד יד ${f.handMax}`]);
+  f.features.forEach((value) => out.push(["features", value, FEATURE_LABEL[value]]));
+  return out.length ? `<div class="active-chips">${out.map(([group, value, label]) => `<button type="button" class="active-chip" data-action="remove-filter" data-group="${group}" data-value="${html(value)}">${html(label)} ${icon("close", 12)}</button>`).join("")}<button type="button" class="text-button small" data-action="clear-filters">ניקוי הכל</button></div>` : "";
+}
+
+function renderResults(favoritesOnly = state.view === "favorites") {
+  const list = visibleCars(favoritesOnly);
+  const pool = favoritesOnly ? state.cars.filter((car) => state.favorites.has(car.id)) : state.cars;
+  const empty = !pool.length
+    ? `<div class="empty-state"><span class="empty-icon">${icon(favoritesOnly ? "heart" : "cars", 27)}</span><h3>${favoritesOnly ? "עוד לא שמרת מועדפים" : "המאגר שלך מתחיל כאן"}</h3><p>${favoritesOnly ? "לחץ על הלב בכרטיס רכב כדי לשמור אותו כאן." : "הוסף מודעה, צילום מסך או פרטים ידנית — ונחשב התאמה לפי הפרופיל שלך."}</p>${favoritesOnly ? `<button class="secondary-button" data-view="cars">למאגר הרכבים</button>` : `<button class="primary-button" data-action="open-add">${icon("plus", 17)} הוספת הרכב הראשון</button>`}</div>`
+    : `<div class="empty-state"><span class="empty-icon">${icon("search", 27)}</span><h3>לא מצאנו רכבים שמתאימים לסינון</h3><p>נסה להרחיב את טווח המחיר, להסיר אבזור או לנקות את החיפוש.</p><button class="secondary-button" data-action="clear-filters">ניקוי כל המסננים</button></div>`;
+  return `${activeChips()}${list.length ? `<div class="car-grid">${list.map(renderCarCard).join("")}</div>` : empty}`;
+}
+
+function renderCars(favoritesOnly = false) {
   const title = favoritesOnly ? "המועדפים שלי" : "מאגר הרכבים";
-  const sub = favoritesOnly ? "הרכבים ששמרת לבדיקה נוספת." : "כל האפשרויות, במקום אחד. הציון מותאם לדרישות האישיות שלך.";
+  const sub = favoritesOnly
+    ? (state.cloud && state.favoritesMode === "cloud" ? "הרכבים ששמרת — מסונכרנים לחשבון שלך." : "הרכבים ששמרת — נשמרים בדפדפן הזה.")
+    : "כל האפשרויות, במקום אחד. הציון מותאם לדרישות האישיות שלך.";
   const avg = state.cars.length ? Math.round(state.cars.reduce((sum, car) => sum + scoreCar(car), 0) / state.cars.length) : 0;
   const underBudget = state.cars.filter((car) => !car.price_ils || car.price_ils <= state.profile.budget_max).length;
+  const active = activeFilterCount();
   return `<section class="page-head"><div><div class="eyebrow"><span class="eyebrow-line"></span> החיפוש שלך, מפוקס יותר</div><h1>${title}</h1><p>${sub}</p></div><button class="primary-button" data-action="open-add">${icon("plus", 18)} הוספת רכב</button></section>
-    ${!favoritesOnly ? `<section class="summary-grid"><article class="summary-card"><div class="summary-icon violet">${icon("cars")}</div><div><span>רכבים במאגר</span><strong>${number(state.cars.length)}</strong></div><span class="summary-foot">${state.cloud ? "משותף למשתמשים שאושרו" : "נשמר בדפדפן הזה"}</span></article><article class="summary-card"><div class="summary-icon green">${icon("bolt")}</div><div><span>ממוצע התאמה</span><strong>${avg}<small>/100</small></strong></div><span class="summary-foot">לפי הפרופיל שלך</span></article><article class="summary-card"><div class="summary-icon amber">${icon("check")}</div><div><span>בתוך התקציב</span><strong>${number(underBudget)}</strong></div><span class="summary-foot">מתוך ${number(state.cars.length)} רכבים</span></article><article class="summary-card"><div class="summary-icon rose">${icon("heart")}</div><div><span>מועדפים</span><strong>${number(state.favorites.size)}</strong></div><span class="summary-foot">נשמרים בפרופיל האישי</span></article></section>` : ""}
-    <section class="listing-toolbar"><div class="toolbar-title"><div><h2>${favoritesOnly ? "הרכבים ששמרת" : "כל הרכבים"}</h2><span>${number(list.length)} תוצאות</span></div><div class="toolbar-controls"><label class="search-box">${icon("search", 18)}<input id="car-search" type="search" placeholder="חיפוש דגם, שנה או עיר…" value="${html(state.search)}" autocomplete="off" /></label><select class="sort-select" id="car-filter" aria-label="סינון רכבים"><option value="all" ${state.filter === "all" ? "selected" : ""}>כל ההתאמות</option><option value="high" ${state.filter === "high" ? "selected" : ""}>התאמה גבוהה</option><option value="favorites" ${state.filter === "favorites" ? "selected" : ""}>מועדפים</option></select></div></div>
-      ${state.compareIds.size ? `<div class="compare-banner"><span>${icon("compare", 17)} נבחרו ${state.compareIds.size} רכבים להשוואה</span><button data-view="compare">מעבר להשוואה ${icon("arrow", 15)}</button></div>` : ""}
-      ${list.length ? `<div class="car-grid">${list.map(renderCarCard).join("")}</div>` : `<div class="empty-state"><span class="empty-icon">${icon(favoritesOnly ? "heart" : "cars", 27)}</span><h3>${favoritesOnly ? "עוד לא שמרת מועדפים" : state.cars.length ? "לא מצאנו התאמות לחיפוש הזה" : "המאגר שלך מתחיל כאן"}</h3><p>${favoritesOnly ? "לחץ על הלב בכרטיס רכב כדי לשמור אותו כאן." : state.cars.length ? "נסה לשנות את החיפוש או את הסינון." : "הוסף מודעה, צילום מסך או פרטים ידנית — ונחשב התאמה לפי הפרופיל שלך."}</p>${!state.cars.length ? `<button class="primary-button" data-action="open-add">${icon("plus", 17)} הוספת הרכב הראשון</button>` : ""}</div>`}
-    </section>`;
+    ${!favoritesOnly ? `<section class="summary-grid"><article class="summary-card"><div class="summary-icon violet">${icon("cars")}</div><div><span>רכבים במאגר</span><strong>${number(state.cars.length)}</strong></div><span class="summary-foot">${state.cloud ? "משותף למשתמשים שאושרו" : "נשמר בדפדפן הזה"}</span></article><article class="summary-card"><div class="summary-icon green">${icon("bolt")}</div><div><span>ממוצע התאמה</span><strong>${avg}<small>/100</small></strong></div><span class="summary-foot">לפי הפרופיל שלך</span></article><article class="summary-card"><div class="summary-icon amber">${icon("check")}</div><div><span>בתוך התקציב</span><strong>${number(underBudget)}</strong></div><span class="summary-foot">עד ${money(state.profile.budget_max)}</span></article><article class="summary-card"><div class="summary-icon rose">${icon("heart")}</div><div><span>מועדפים</span><strong>${number(state.favorites.size)}</strong></div><span class="summary-foot">${state.cloud && state.favoritesMode === "cloud" ? "מסונכרנים לחשבון" : "נשמרים במכשיר"}</span></article></section>` : ""}
+    <div class="browse-layout">
+      <div class="filter-backdrop ${state.filtersOpen ? "open" : ""}" data-action="toggle-filters"></div>
+      <aside id="filter-panel" class="filter-panel ${state.filtersOpen ? "open" : ""}" aria-label="סינון רכבים">${renderFilterPanel()}</aside>
+      <section class="listing-toolbar"><div class="toolbar-title"><div><h2>${favoritesOnly ? "הרכבים ששמרת" : "כל הרכבים"}</h2><span><b data-result-count>${number(visibleCars(favoritesOnly).length)}</b> תוצאות</span></div><div class="toolbar-controls"><button type="button" class="secondary-button filter-open" data-action="toggle-filters">${icon("menu", 17)} סינון${active ? ` <span class="nav-count" data-filter-count>${active}</span>` : ""}</button><label class="search-box">${icon("search", 18)}<input id="car-search" type="search" placeholder="חיפוש דגם, שנה או עיר…" value="${html(state.search)}" autocomplete="off" /></label><select class="sort-select" id="car-sort" aria-label="מיון">${Object.entries(SORTS).map(([key, [label]]) => `<option value="${key}" ${state.sort === key ? "selected" : ""}>${label}</option>`).join("")}</select></div></div>
+        <div id="results">${renderResults(favoritesOnly)}</div>
+      </section>
+    </div>`;
+}
+
+function featurePreview(car, max = 3) {
+  if (!car.features.length) return "";
+  const shown = car.features.slice(0, max).map((key) => `<span>${html(FEATURE_LABEL[key])}</span>`).join("");
+  return `<div class="feature-preview">${shown}${car.features.length > max ? `<span class="more">+${car.features.length - max}</span>` : ""}</div>`;
 }
 
 function renderCarCard(car) {
@@ -300,18 +519,66 @@ function renderCarCard(car) {
   const [label, tone] = scoreLabel(score);
   const selected = state.compareIds.has(car.id);
   const initials = html((car.make || car.title || "CS").slice(0, 2));
-  return `<article class="car-card"><div class="car-art art-${Math.abs(String(car.id).split("").reduce((a, b) => a + b.charCodeAt(0), 0)) % 4}"><div class="art-noise"></div><span class="car-class">${html(car.body_type || "רכב משומש")}</span><button class="favorite-button ${state.favorites.has(car.id) ? "favorited" : ""}" aria-label="${state.favorites.has(car.id) ? "הסרה ממועדפים" : "הוספה למועדפים"}" data-action="favorite" data-id="${html(car.id)}">${icon("heart", 19)}</button><div class="car-illustration"><span>${initials}</span></div><div class="art-bottom"><span>${html(car.year || "שנתון לא צוין")}</span><span>${html(car.city || "מיקום לא צוין")}</span></div></div>
-    <div class="car-card-body"><div class="car-title-row"><div><h3>${html(car.title)}</h3><p>${html([car.trim, car.engine && `${car.engine} ל׳`].filter(Boolean).join(" · ") || car.make || "פרטים נוספים במודעה")}</p></div><div class="score-ring ${tone}" style="--score:${score}"><strong>${score}</strong><small>התאמה</small></div></div>
-      <div class="car-facts"><div><span>מחיר</span><b>${money(car.price_ils)}</b></div><div><span>קילומטראז׳</span><b>${car.mileage_km ? `${number(car.mileage_km)} ק״מ` : "—"}</b></div><div><span>יד</span><b>${car.owners ? `${number(car.owners)}׳` : "—"}</b></div></div>
-      <div class="car-tags"><span>${html(car.fuel_type || "סוג דלק לא צוין")}</span><span>${html(car.transmission || "גיר לא צוין")}</span><span>${html(label)}</span></div>
-      <div class="car-card-actions"><button class="text-button" data-action="details" data-id="${html(car.id)}">פרטים מלאים ${icon("arrow", 14)}</button><button class="compare-toggle ${selected ? "selected" : ""}" data-action="compare-toggle" data-id="${html(car.id)}">${selected ? icon("check", 15) : icon("compare", 15)} ${selected ? "נבחר" : "השוואה"}</button></div>
+  const fav = state.favorites.has(car.id);
+  return `<article class="car-card ${selected ? "is-compared" : ""}"><div class="car-art art-${Math.abs(String(car.id).split("").reduce((a, b) => a + b.charCodeAt(0), 0)) % 4}" data-action="details" data-id="${html(car.id)}"><div class="art-noise"></div><span class="car-class">${html(car.body_type || "רכב משומש")}</span><button class="favorite-button ${fav ? "favorited" : ""}" aria-pressed="${fav}" aria-label="${fav ? "הסרה ממועדפים" : "הוספה למועדפים"}" data-action="favorite" data-id="${html(car.id)}">${icon("heart", 19)}</button><div class="car-illustration"><span>${initials}</span></div><div class="art-bottom"><span>${html(car.year || "שנתון לא צוין")}</span><span>${html(car.city || "מיקום לא צוין")}</span></div></div>
+    <div class="car-card-body"><div class="car-title-row"><div><h3><button class="title-link" data-action="details" data-id="${html(car.id)}">${html(car.title)}</button></h3><p>${html([car.trim, car.engine && `${car.engine} ל׳`].filter(Boolean).join(" · ") || car.make || "פרטים נוספים במודעה")}</p></div><div class="score-ring ${tone}" style="--score:${score}" title="${html(label)}"><strong>${score}</strong><small>התאמה</small></div></div>
+      <div class="car-price">${money(car.price_ils)}</div>
+      <div class="car-facts"><div><span>שנתון</span><b>${html(car.year || "—")}</b></div><div><span>ק״מ</span><b>${car.mileage_km != null ? number(car.mileage_km) : "—"}</b></div><div><span>יד</span><b>${car.owners ? number(car.owners) : "—"}</b></div></div>
+      <div class="car-tags"><span>${html(car.fuel_type || "דלק לא צוין")}</span><span>${html(car.transmission || "גיר לא צוין")}</span></div>
+      ${featurePreview(car)}
+      <div class="car-card-actions"><button class="text-button" data-action="details" data-id="${html(car.id)}">פרטים מלאים ${icon("arrow", 14)}</button><button class="compare-toggle ${selected ? "selected" : ""}" aria-pressed="${selected}" data-action="compare-toggle" data-id="${html(car.id)}">${selected ? icon("check", 15) : icon("compare", 15)} ${selected ? "בהשוואה" : "השוואה"}</button></div>
     </div></article>`;
+}
+
+/* ---------- Comparison ---------- */
+const rating = (value) => `<span class="rating-dots" aria-label="${Number(value || 3)} מתוך 5">${Array.from({ length: 5 }, (_, i) => `<i class="${i < Number(value || 3) ? "on" : ""}"></i>`).join("")}</span>`;
+
+// Each row: [label, render(car), bestFn?] — bestFn picks the winning raw value among compared cars.
+function compareRows(full = true) {
+  const rows = [
+    ["ציון התאמה", (car) => `<b>${scoreCar(car)}</b>/100`, { value: scoreCar, best: Math.max }],
+    ["מחיר", (car) => money(car.price_ils), { value: (car) => car.price_ils, best: Math.min }],
+    ["שנתון", (car) => html(car.year || "—"), { value: (car) => car.year, best: Math.max }],
+    ["קילומטראז׳", (car) => km(car.mileage_km), { value: (car) => car.mileage_km, best: Math.min }],
+    ["יד", (car) => hand(car.owners), { value: (car) => car.owners, best: Math.min }],
+    ["הנעה", (car) => html(car.fuel_type || "—")],
+    ["תיבת הילוכים", (car) => html(car.transmission || "—")],
+  ];
+  if (!full) return [...rows, ["אבזור", (car) => `${car.features.length} / ${FEATURES.length}`, { value: (car) => car.features.length, best: Math.max }]];
+  return [...rows,
+    ["סוג רכב", (car) => html(car.body_type || "—")],
+    ["נפח מנוע", (car) => html(car.engine ? `${car.engine} ל׳` : "—")],
+    ["עיר", (car) => html(car.city || "—")],
+    ["אמינות", (car) => rating(car.reliability)], ["חיסכון", (car) => rating(car.economy)], ["בטיחות", (car) => rating(car.safety)], ["אחזקה", (car) => rating(car.maintenance)], ["ביצועים", (car) => rating(car.performance)],
+    ...FEATURES.map((feature) => [feature.label, (car) => car.features.includes(feature.key) ? `<span class="yes">${icon("check", 15)}</span>` : `<span class="no">—</span>`, null, "feature-row"]),
+  ];
+}
+
+function compareTable(cars, full = true) {
+  const rows = compareRows(full);
+  const cell = (row, car) => {
+    const [, render, best] = row;
+    let cls = "";
+    if (best && cars.length > 1) {
+      const values = cars.map(best.value).filter((v) => v != null && v !== "");
+      const winner = values.length ? best.best(...values) : null;
+      if (winner != null && best.value(car) === winner && values.filter((v) => v === winner).length < cars.length) cls = "best";
+    }
+    return `<td class="${cls}">${render(car)}</td>`;
+  };
+  return `<table class="compare-grid ${full ? "full" : "mini"}"><thead><tr><th scope="col"><span class="sr-only">נתון</span></th>${cars.map((car) => `<th scope="col"><div class="compare-head"><button class="remove-compare icon-button" title="הסרה מההשוואה" aria-label="הסרת ${html(car.title)} מההשוואה" data-action="compare-toggle" data-id="${html(car.id)}">${icon("close", 14)}</button><span class="compare-car-art">${html((car.make || "CS").slice(0, 2))}</span><button class="title-link" data-action="details" data-id="${html(car.id)}">${html(car.title)}</button><small>${html([car.year, car.trim].filter(Boolean).join(" · "))}</small></div></th>`).join("")}${full ? "" : Array.from({ length: 3 - cars.length }, () => `<th scope="col"><div class="compare-slot">${icon("plus", 18)}<span>הוסיפו רכב<br/>מהרשימה</span></div></th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr class="${row[3] || ""}"><th scope="row">${row[0]}</th>${cars.map((car) => cell(row, car)).join("")}${full ? "" : Array.from({ length: 3 - cars.length }, () => "<td></td>").join("")}</tr>`).join("")}</tbody></table>`;
+}
+
+function renderCompareDrawer() {
+  const cars = [...state.compareIds].map((id) => state.cars.find((car) => car.id === id)).filter(Boolean);
+  if (!cars.length || state.view === "compare") return "";
+  return `<aside class="compare-drawer ${state.drawerOpen ? "open" : ""}" aria-label="השוואת רכבים"><div class="drawer-bar"><button type="button" class="drawer-toggle" data-action="toggle-drawer" aria-expanded="${state.drawerOpen}">${icon("compare", 18)}<b>השוואה</b><span class="drawer-count">${cars.length}/3</span><span class="drawer-names">${cars.map((car) => html(car.title)).join(" · ")}</span><span class="chev">${state.drawerOpen ? "▾" : "▴"}</span></button><div class="drawer-actions"><button type="button" class="text-button small" data-action="clear-compare">ניקוי</button><button type="button" class="primary-button small" data-view="compare" ${cars.length < 2 ? "disabled" : ""}>השוואה מלאה ${icon("arrow", 14)}</button></div></div>${state.drawerOpen ? `<div class="drawer-body">${compareTable(cars, false)}</div>` : ""}</aside>`;
 }
 
 function renderCompare() {
   const cars = [...state.compareIds].map((id) => state.cars.find((car) => car.id === id)).filter(Boolean);
-  return `<section class="page-head"><div><div class="eyebrow"><span class="eyebrow-line"></span> החלטה שמבוססת על הנתונים</div><h1>משווים ומחליטים</h1><p>כל רכב מקבל ציון אישי לפי התקציב והעדיפויות שלך.</p></div><button class="secondary-button" data-view="cars">${icon("cars", 17)} חזרה למאגר</button></section>
-    ${cars.length < 2 ? `<div class="empty-state compare-empty"><span class="empty-icon">${icon("compare", 27)}</span><h3>${cars.length ? "צריך עוד רכב אחד להשוואה" : "בחר לפחות שני רכבים"}</h3><p>חזור למאגר ולחץ על כפתור ההשוואה בכרטיסים. אפשר להשוות עד שלושה רכבים יחד.</p><button class="primary-button" data-view="cars">בחירת רכבים ${icon("arrow", 15)}</button></div>` : `<section class="comparison-wrap"><div class="comparison-header"><div class="comparison-label">${icon("shield", 18)} השוואה לפי הפרופיל שלך</div><span>אפשר לבחור עד 3 רכבים</span></div><div class="comparison-table" style="--compare-columns:${cars.length}"><div class="compare-label-column"><div class="compare-label-title">נתון להשוואה</div>${["ציון התאמה", "מחיר", "שנתון", "קילומטראז׳", "מספר ידיים", "סוג רכב", "הנעה", "תיבת הילוכים", "נפח מנוע", "עיר", "אמינות", "צריכת דלק", "בטיחות", "אחזקה", "ביצועים"].map((label) => `<div class="compare-row-label">${label}</div>`).join("")}</div>${cars.map((car) => `<div class="compare-car-column"><div class="compare-car-head"><button class="remove-compare" title="הסרה מההשוואה" data-action="compare-toggle" data-id="${html(car.id)}">${icon("close", 15)}</button><div class="compare-car-art">${html((car.make || "CS").slice(0, 2))}</div><h3>${html(car.title)}</h3><p>${html(car.trim || car.make || "")}</p><span class="compare-score ${scoreLabel(scoreCar(car))[1]}">${scoreCar(car)}<small>/100</small></span></div><div class="compare-value highlight">${scoreLabel(scoreCar(car))[0]}</div><div class="compare-value price-value">${money(car.price_ils)}</div><div class="compare-value">${html(car.year || "—")}</div><div class="compare-value">${car.mileage_km ? `${number(car.mileage_km)} ק״מ` : "—"}</div><div class="compare-value">${car.owners ? `${number(car.owners)}׳` : "—"}</div><div class="compare-value">${html(car.body_type || "—")}</div><div class="compare-value">${html(car.fuel_type || "—")}</div><div class="compare-value">${html(car.transmission || "—")}</div><div class="compare-value">${html(car.engine ? `${car.engine} ל׳` : "—")}</div><div class="compare-value">${html(car.city || "—")}</div>${["reliability", "economy", "safety", "maintenance", "performance"].map((key) => `<div class="compare-value"><span class="rating-dots">${Array.from({ length: 5 }, (_, i) => `<i class="${i < Number(car[key] || 3) ? "on" : ""}"></i>`).join("")}</span></div>`).join("")}</div>`).join("")}</div><div class="comparison-note">${icon("bolt", 16)} ציוני הרכב הם הערכות ראשוניות. כדאי לאמת מצב מכני, היסטוריית טיפולים ותאונות לפני קנייה.</div></section>`}`;
+  return `<section class="page-head"><div><div class="eyebrow"><span class="eyebrow-line"></span> החלטה שמבוססת על הנתונים</div><h1>משווים ומחליטים</h1><p>עד 3 רכבים זה לצד זה. הערך הטוב ביותר בכל שורה מודגש.</p></div><button class="secondary-button" data-view="cars">${icon("cars", 17)} חזרה למאגר</button></section>
+    ${cars.length < 2 ? `<div class="empty-state compare-empty"><span class="empty-icon">${icon("compare", 27)}</span><h3>${cars.length ? "צריך עוד רכב אחד להשוואה" : "בחר לפחות שני רכבים"}</h3><p>חזור למאגר ולחץ על כפתור ההשוואה בכרטיסים. אפשר להשוות עד שלושה רכבים יחד.</p><button class="primary-button" data-view="cars">בחירת רכבים ${icon("arrow", 15)}</button></div>` : `<section class="comparison-wrap"><div class="comparison-header"><div class="comparison-label">${icon("shield", 18)} השוואה לפי הפרופיל שלך</div><button class="text-button small" data-action="clear-compare">ניקוי ההשוואה</button></div><div class="table-scroll">${compareTable(cars, true)}</div><div class="comparison-note">${icon("bolt", 16)} ציוני הרכב הם הערכות ראשוניות. כדאי לאמת מצב מכני, היסטוריית טיפולים ותאונות לפני קנייה.</div></section>`}`;
 }
 
 function selectOptions(values, selected = "", placeholder = "לא משנה") {
@@ -326,6 +593,7 @@ function renderProfile() {
     <form id="profile-form" class="profile-layout"><div class="profile-main"><section class="form-panel"><div class="panel-heading"><span class="panel-number">01</span><div><h2>דרישות בסיס</h2><p>סינון ההעדפות העיקריות שלך</p></div></div><div class="form-grid two"><label class="field"><span>שם להצגה</span><input name="display_name" value="${html(p.display_name)}" placeholder="איך לפנות אליך?" maxlength="50" /></label><label class="field"><span>תקציב מקסימלי</span><div class="input-with-suffix"><input name="budget_max" type="number" min="0" step="1000" value="${html(p.budget_max)}" /><em>₪</em></div></label><label class="field"><span>שנתון מינימלי</span><input name="year_min" type="number" min="1980" max="2100" value="${html(p.year_min)}" /></label><label class="field"><span>קילומטראז׳ מקסימלי</span><div class="input-with-suffix"><input name="mileage_max" type="number" min="0" step="5000" value="${html(p.mileage_max)}" /><em>ק״מ</em></div></label><label class="field"><span>מספר בעלים מקסימלי</span><select name="owners_max">${selectOptions(["1", "2", "3", "4", "5"], String(p.owners_max))}</select></label><label class="field"><span>סוג רכב מועדף</span><select name="body_type">${selectOptions(["משפחתית", "סופר מיני", "קרוסאובר", "רכב פנאי", "האצ׳בק", "סדאן", "סטיישן", "קופה", "מסחרי"], p.body_type)}</select></label><label class="field"><span>סוג הנעה מועדף</span><select name="fuel_type">${selectOptions(["בנזין", "דיזל", "היברידי", "היברידי נטען", "חשמלי", "גפ״מ"], p.fuel_type)}</select></label><label class="field"><span>תיבת הילוכים מועדפת</span><select name="transmission">${selectOptions(["אוטומטית", "ידנית", "רובוטית", "רציפה"], p.transmission)}</select></label></div></section>
       <section class="form-panel"><div class="panel-heading"><span class="panel-number">02</span><div><h2>מה מקבל יותר משקל?</h2><p>הזז את הסרגלים כדי להתאים את חישוב הציון</p></div></div><div class="weights-grid">${slider("reliability", "אמינות", weights.reliability)}${slider("economy", "צריכת דלק", weights.economy)}${slider("safety", "בטיחות", weights.safety)}${slider("maintenance", "עלויות אחזקה", weights.maintenance)}${slider("performance", "ביצועים", weights.performance)}</div></section>
       <section class="form-panel"><div class="panel-heading"><span class="panel-number">03</span><div><h2>דגמים ופרטים לפסילה</h2><p>הוסף מילות מפתח שלא תרצה לראות בציון גבוה</p></div></div><label class="field"><span>מילים או דגמים, מופרדים בפסיק</span><input name="excluded_terms" value="${html((p.excluded_terms || []).join(", "))}" placeholder="לדוגמה: מנוע 1.2, דגם מסוים" /></label><div class="form-hint">רכב שתואם למילה מהרשימה יקבל הפחתה בציון. אפשר לערוך את הפרופיל בכל עת.</div></section>
+      <section class="form-panel"><div class="panel-heading"><span class="panel-number">04</span><div><h2>שמירת מועדפים</h2><p>איפה לשמור את הרכבים שסימנת בלב</p></div></div>${state.cloud ? `<div class="segmented wide" role="radiogroup" aria-label="מיקום שמירת מועדפים"><button type="button" role="radio" aria-checked="${state.favoritesMode === "cloud"}" class="${state.favoritesMode === "cloud" ? "on" : ""}" data-fav-mode="cloud">${icon("shield", 15)} בחשבון (Supabase)</button><button type="button" role="radio" aria-checked="${state.favoritesMode === "local"}" class="${state.favoritesMode === "local" ? "on" : ""}" data-fav-mode="local">${icon("download", 15)} במכשיר הזה</button></div><div class="form-hint">בחשבון — מסונכרן בין מכשירים. במכשיר — נשמר ב-localStorage של הדפדפן בלבד. במעבר לחשבון, המועדפים מהמכשיר מתווספים אליו.</div>` : `<div class="form-hint">${icon("download", 15)} במצב הדגמה המועדפים נשמרים ב-localStorage של הדפדפן. אחרי חיבור Supabase תוכלו לבחור לסנכרן אותם לחשבון.</div>`}</section>
       <div class="form-footer"><span>העדפות אלה נשמרות בפרופיל שלך בלבד.</span><button class="primary-button" type="submit">שמירת הפרופיל ${icon("check", 17)}</button></div>
     </div><aside class="profile-aside"><div class="profile-preview"><span class="preview-orbit orbit-one"></span><span class="preview-orbit orbit-two"></span><div class="preview-icon">${icon("profile", 27)}</div><h3>הפרופיל שלך</h3><p>המאגר משותף, אבל ההתאמה, הדרישות והמועדפים נשמרים בנפרד.</p><div class="preview-stat"><span>תקציב מקסימלי</span><b>${money(p.budget_max)}</b></div><div class="preview-stat"><span>שנתון מינימלי</span><b>${html(p.year_min)}</b></div><div class="preview-stat"><span>מועדפים אישיים</span><b>${number(state.favorites.size)}</b></div><div class="preview-foot">${icon("shield", 15)} הפרופיל מוגן בהרשאות משתמש</div></div></aside></form>`;
 }
@@ -351,7 +619,7 @@ function renderCarModal() {
     ${tab === "link" ? `<div class="source-panel"><label class="field"><span>קישור למודעה</span><input name="source_url" data-draft="source_url" value="${html(draft.source_url || "")}" placeholder="https://…" dir="ltr" /></label><label class="field"><span>טקסט המודעה (אפשר להדביק כאן)</span><textarea name="listing_text" data-draft="listing_text" rows="3" placeholder="הדבק את תיאור המודעה כדי לחלץ ממנו פרטים…">${html(draft.listing_text || "")}</textarea></label><div class="source-note">${icon("shield", 15)} קישורים נשמרים. אתרי מודעות רבים חוסמים קריאה ישירה מהדפדפן, לכן אפשר להדביק את הטקסט או להעלות צילום מסך.</div><button type="button" class="secondary-button extract-button" data-action="extract-text">${icon("bolt", 16)} חילוץ פרטים מהטקסט</button></div>` : ""}
     ${tab === "photo" ? `<div class="source-panel photo-source"><label class="upload-zone" for="car-image"><span class="upload-icon">${icon("image", 25)}</span><b>העלה צילום מסך של המודעה</b><small>PNG, JPG או WEBP. התמונה מעובדת בדפדפן ולא נשמרת בענן.</small><span class="upload-cta">בחירת תמונה</span><input id="car-image" type="file" accept="image/*" /></label><div id="ocr-status" class="ocr-status">${html(draft.ocrStatus || "")}</div><label class="field"><span>הטקסט שזוהה — אפשר לתקן לפני חילוץ</span><textarea name="listing_text" data-draft="listing_text" rows="3" placeholder="הטקסט מהצילום יופיע כאן…">${html(draft.listing_text || "")}</textarea></label><button type="button" class="secondary-button extract-button" data-action="extract-text">${icon("bolt", 16)} חילוץ פרטים מהטקסט</button></div>` : ""}
     ${tab === "manual" ? `<div class="manual-intro">${icon("edit", 17)} הזן את הפרטים שיש לך. אפשר להשאיר שדות לא ידועים ריקים.</div>` : ""}
-    <form id="car-form" class="car-form"><div class="review-header"><span class="review-step">אישור לפני שמירה</span><span>אפשר לתקן כל שדה</span></div><div class="form-grid two">${addField("יצרן", "make", draft.make || "", "text", "למשל Toyota")}${addField("דגם", "model", draft.model || "", "text", "למשל Corolla")}${addField("כותרת להצגה", "title", draft.title || "", "text", "נוצר אוטומטית מהיצרן והדגם")}<label class="field"><span>שנתון</span><input name="year" type="number" min="1950" max="2100" value="${html(draft.year || "")}" placeholder="2021" /></label><label class="field"><span>מחיר</span><div class="input-with-suffix"><input name="price_ils" type="number" min="0" step="1000" value="${html(draft.price_ils || "")}" placeholder="95000" /><em>₪</em></div></label><label class="field"><span>קילומטראז׳</span><div class="input-with-suffix"><input name="mileage_km" type="number" min="0" step="1000" value="${html(draft.mileage_km || "")}" placeholder="65000" /><em>ק״מ</em></div></label><label class="field"><span>מספר ידיים</span><input name="owners" type="number" min="1" max="20" value="${html(draft.owners || "")}" placeholder="2" /></label><label class="field"><span>עיר</span><input name="city" value="${html(draft.city || "")}" placeholder="תל אביב" /></label><label class="field"><span>סוג רכב</span><select name="body_type">${selectOptions(["משפחתית", "סופר מיני", "קרוסאובר", "רכב פנאי", "האצ׳בק", "סדאן", "סטיישן", "קופה", "מסחרי"], draft.body_type)}</select></label><label class="field"><span>סוג הנעה</span><select name="fuel_type">${selectOptions(["בנזין", "דיזל", "היברידי", "היברידי נטען", "חשמלי", "גפ״מ"], draft.fuel_type)}</select></label><label class="field"><span>תיבת הילוכים</span><select name="transmission">${selectOptions(["אוטומטית", "ידנית", "רובוטית", "רציפה"], draft.transmission)}</select></label>${addField("נפח מנוע", "engine", draft.engine || "", "text", "למשל 1.6")}${addField("רמת גימור", "trim", draft.trim || "", "text", "")}</div><div class="rating-heading"><b>הערכת רכב ראשונית</b><span>משפיעה על ציון ההתאמה</span></div><div class="form-grid five">${ratingField("reliability", "אמינות")}${ratingField("economy", "חיסכון")}${ratingField("safety", "בטיחות")}${ratingField("maintenance", "אחזקה")}${ratingField("performance", "ביצועים")}</div><label class="field notes-field"><span>הערות</span><textarea name="notes" rows="2" placeholder="הערות, מצב הרכב או נקודות לבדיקה…">${html(draft.notes || "")}</textarea></label><div class="form-footer modal-footer"><button type="button" class="text-button" data-action="close-modal">ביטול</button><button class="primary-button" type="submit" ${state.busy ? "disabled" : ""}>${state.busy ? "שומר…" : editing ? "שמירת עדכון" : "אישור ושמירת הרכב"} ${icon("check", 16)}</button></div></form>
+    <form id="car-form" class="car-form"><div class="review-header"><span class="review-step">אישור לפני שמירה</span><span>אפשר לתקן כל שדה</span></div><div class="form-grid two">${addField("יצרן", "make", draft.make || "", "text", "למשל Toyota")}${addField("דגם", "model", draft.model || "", "text", "למשל Corolla")}${addField("כותרת להצגה", "title", draft.title || "", "text", "נוצר אוטומטית מהיצרן והדגם")}<label class="field"><span>שנתון</span><input name="year" type="number" min="1950" max="2100" value="${html(draft.year || "")}" placeholder="2021" /></label><label class="field"><span>מחיר</span><div class="input-with-suffix"><input name="price_ils" type="number" min="0" step="1000" value="${html(draft.price_ils || "")}" placeholder="95000" /><em>₪</em></div></label><label class="field"><span>קילומטראז׳</span><div class="input-with-suffix"><input name="mileage_km" type="number" min="0" step="1000" value="${html(draft.mileage_km || "")}" placeholder="65000" /><em>ק״מ</em></div></label><label class="field"><span>מספר ידיים</span><input name="owners" type="number" min="1" max="20" value="${html(draft.owners || "")}" placeholder="2" /></label><label class="field"><span>עיר</span><input name="city" value="${html(draft.city || "")}" placeholder="תל אביב" /></label><label class="field"><span>סוג רכב</span><select name="body_type">${selectOptions(["משפחתית", "סופר מיני", "קרוסאובר", "רכב פנאי", "האצ׳בק", "סדאן", "סטיישן", "קופה", "מסחרי"], draft.body_type)}</select></label><label class="field"><span>סוג הנעה</span><select name="fuel_type">${selectOptions(["בנזין", "דיזל", "היברידי", "היברידי נטען", "חשמלי", "גפ״מ"], draft.fuel_type)}</select></label><label class="field"><span>תיבת הילוכים</span><select name="transmission">${selectOptions(["אוטומטית", "ידנית", "רובוטית", "רציפה"], draft.transmission)}</select></label>${addField("נפח מנוע", "engine", draft.engine || "", "text", "למשל 1.6")}${addField("רמת גימור", "trim", draft.trim || "", "text", "")}</div><div class="rating-heading"><b>הערכת רכב ראשונית</b><span>משפיעה על ציון ההתאמה</span></div><div class="form-grid five">${ratingField("reliability", "אמינות")}${ratingField("economy", "חיסכון")}${ratingField("safety", "בטיחות")}${ratingField("maintenance", "אחזקה")}${ratingField("performance", "ביצועים")}</div><div class="rating-heading"><b>אבזור</b><span>סמנו את מה שקיים ברכב</span></div><div class="check-list form-checks">${FEATURES.map((feature) => `<label class="check-row"><input type="checkbox" name="features" value="${feature.key}" ${(draft.features || []).includes(feature.key) ? "checked" : ""} /><span class="box">${icon("check", 12)}</span><span>${feature.label}</span></label>`).join("")}</div><label class="field notes-field"><span>הערות</span><textarea name="notes" rows="2" placeholder="הערות, מצב הרכב או נקודות לבדיקה…">${html(draft.notes || "")}</textarea></label><div class="form-footer modal-footer"><button type="button" class="text-button" data-action="close-modal">ביטול</button><button class="primary-button" type="submit" ${state.busy ? "disabled" : ""}>${state.busy ? "שומר…" : editing ? "שמירת עדכון" : "אישור ושמירת הרכב"} ${icon("check", 16)}</button></div></form>
   </section></div>`;
 }
 
@@ -360,7 +628,21 @@ function renderDetailsModal() {
   if (!car) return "";
   const canEdit = !state.cloud || car.created_by === state.user?.id;
   const score = scoreCar(car);
-  return `<div class="modal-backdrop" data-action="backdrop"><section class="modal detail-modal" role="dialog" aria-modal="true"><button class="modal-close icon-button" aria-label="סגירה" data-action="close-modal">${icon("close")}</button><div class="detail-art">${html((car.make || "CS").slice(0, 2))}</div><div class="detail-top"><div><span class="modal-kicker">${html(car.year || "רכב משומש")} ${html(car.body_type || "")}</span><h2>${html(car.title)}</h2><p>${html([car.trim, car.engine && `${car.engine} ל׳`, car.city].filter(Boolean).join(" · "))}</p></div><div class="detail-score ${scoreLabel(score)[1]}">${score}<small>/100 התאמה</small></div></div><div class="detail-facts">${[["מחיר", money(car.price_ils)], ["קילומטראז׳", car.mileage_km ? `${number(car.mileage_km)} ק״מ` : "—"], ["יד", car.owners ? `${number(car.owners)}׳` : "—"], ["הנעה", car.fuel_type || "—"], ["גיר", car.transmission || "—"], ["עיר", car.city || "—"]].map(([a,b]) => `<div><span>${a}</span><b>${html(b)}</b></div>`).join("")}</div>${car.notes ? `<div class="detail-notes"><b>הערות</b><p>${html(car.notes)}</p></div>` : ""}${car.source_url ? `<a class="source-link" href="${html(car.source_url)}" target="_blank" rel="noopener noreferrer">${icon("link", 16)} פתיחת המודעה המקורית ${icon("arrow", 14)}</a>` : ""}<div class="form-footer modal-footer"><button class="compare-toggle ${state.compareIds.has(car.id) ? "selected" : ""}" data-action="compare-toggle" data-id="${html(car.id)}">${icon("compare", 15)} ${state.compareIds.has(car.id) ? "הסר מהשוואה" : "השוואה"}</button><div class="detail-actions">${canEdit ? `<button class="icon-button danger-button" title="מחיקת רכב" data-action="delete-car" data-id="${html(car.id)}">${icon("trash", 17)}</button><button class="secondary-button" data-action="edit-car" data-id="${html(car.id)}">${icon("edit", 16)} עריכה</button>` : ""}<button class="primary-button" data-action="close-modal">סיום</button></div></div></section></div>`;
+  const fav = state.favorites.has(car.id);
+  const inCompare = state.compareIds.has(car.id);
+  const facts = [["מחיר", money(car.price_ils)], ["שנתון", car.year || "—"], ["קילומטראז׳", km(car.mileage_km)], ["יד", hand(car.owners)], ["הנעה", car.fuel_type || "—"], ["גיר", car.transmission || "—"], ["סוג רכב", car.body_type || "—"], ["נפח מנוע", car.engine ? `${car.engine} ל׳` : "—"], ["עיר", car.city || "—"]];
+  const ratings = [["אמינות", "reliability"], ["חיסכון", "economy"], ["בטיחות", "safety"], ["אחזקה", "maintenance"], ["ביצועים", "performance"]];
+  const perYear = car.year && car.mileage_km != null ? Math.round(car.mileage_km / Math.max(1, new Date().getFullYear() - car.year + 1)) : null;
+  return `<div class="modal-backdrop" data-action="backdrop"><section class="modal detail-modal" role="dialog" aria-modal="true" aria-labelledby="detail-title"><button class="modal-close icon-button" aria-label="סגירה" data-action="close-modal">${icon("close")}</button>
+    <div class="detail-art art-${Math.abs(String(car.id).split("").reduce((a, b) => a + b.charCodeAt(0), 0)) % 4}"><span>${html((car.make || "CS").slice(0, 2))}</span></div>
+    <div class="detail-top"><div><span class="modal-kicker">${html([car.year, car.body_type].filter(Boolean).join(" · ") || "רכב משומש")}</span><h2 id="detail-title">${html(car.title)}</h2><p>${html([car.trim, car.engine && `${car.engine} ל׳`, car.city].filter(Boolean).join(" · "))}</p><div class="detail-price">${money(car.price_ils)}</div></div><div class="detail-score ${scoreLabel(score)[1]}">${score}<small>${scoreLabel(score)[0]}</small></div></div>
+    <div class="detail-facts">${facts.map(([a, b]) => `<div><span>${a}</span><b>${html(b)}</b></div>`).join("")}</div>
+    ${perYear ? `<p class="detail-hint">${icon("clock", 15)} ממוצע של כ-${number(perYear)} ק״מ לשנה</p>` : ""}
+    <div class="detail-section"><h3>אבזור</h3><ul class="feature-list">${FEATURES.map((feature) => `<li class="${car.features.includes(feature.key) ? "has" : "missing"}">${car.features.includes(feature.key) ? icon("check", 14) : icon("close", 14)} ${feature.label}</li>`).join("")}</ul></div>
+    <div class="detail-section"><h3>הערכה ראשונית</h3><div class="detail-ratings">${ratings.map(([label, key]) => `<div><span>${label}</span>${rating(car[key])}</div>`).join("")}</div></div>
+    ${car.notes ? `<div class="detail-notes"><b>הערות</b><p>${html(car.notes)}</p></div>` : ""}
+    ${car.source_url ? `<a class="source-link" href="${html(car.source_url)}" target="_blank" rel="noopener noreferrer">${icon("link", 16)} פתיחת המודעה המקורית ${icon("arrow", 14)}</a>` : ""}
+    <div class="form-footer modal-footer"><div class="detail-actions"><button class="secondary-button ${fav ? "favorited" : ""}" data-action="favorite" data-id="${html(car.id)}">${icon("heart", 16)} ${fav ? "במועדפים" : "שמירה"}</button><button class="compare-toggle ${inCompare ? "selected" : ""}" data-action="compare-toggle" data-id="${html(car.id)}">${icon(inCompare ? "check" : "compare", 15)} ${inCompare ? "בהשוואה" : "השוואה"}</button></div><div class="detail-actions">${canEdit ? `<button class="icon-button danger-button" title="מחיקת רכב" aria-label="מחיקת רכב" data-action="delete-car" data-id="${html(car.id)}">${icon("trash", 17)}</button><button class="secondary-button" data-action="edit-car" data-id="${html(car.id)}">${icon("edit", 16)} עריכה</button>` : ""}<button class="primary-button" data-action="close-modal">סיום</button></div></div></section></div>`;
 }
 
 function renderImportModal() {
@@ -377,7 +659,13 @@ function renderDeniedGate() {
 }
 
 function render() {
+  const y = window.scrollY;
+  const filterScroll = document.querySelector(".filter-scroll")?.scrollTop || 0;
   app.innerHTML = renderShell();
+  window.scrollTo(0, y);
+  const panel = document.querySelector(".filter-scroll");
+  if (panel) panel.scrollTop = filterScroll;
+  document.body.classList.toggle("no-scroll", Boolean(state.modal || state.filtersOpen));
 }
 
 function parseListingText(text) {
@@ -397,6 +685,9 @@ function parseListingText(text) {
   if (transmission) result.transmission = transmission;
   const body = ["משפחתית", "קרוסאובר", "סופר מיני", "האצ׳בק", "סדאן", "סטיישן"].find((value) => normalized.includes(value));
   if (body) result.body_type = body;
+  const lower = normalized.toLowerCase();
+  const features = FEATURES.filter((feature) => feature.match.some((word) => lower.includes(word.toLowerCase()))).map((feature) => feature.key);
+  if (features.length) result.features = features;
   return result;
 }
 
@@ -417,6 +708,7 @@ function carFromForm(form) {
     reliability: Number(data.get("reliability")) || 3, economy: Number(data.get("economy")) || 3,
     safety: Number(data.get("safety")) || 3, performance: Number(data.get("performance")) || 3,
     maintenance: Number(data.get("maintenance")) || 3,
+    features: data.getAll("features").map(String).filter((key) => FEATURE_LABEL[key]),
   };
 }
 
@@ -487,7 +779,7 @@ async function saveProfile(form) {
 async function toggleFavorite(id) {
   const wasFavorite = state.favorites.has(id);
   try {
-    if (state.cloud) {
+    if (state.cloud && state.favoritesMode === "cloud") {
       if (wasFavorite) {
         const { error } = await state.supabase.from("favorites").delete().eq("user_id", state.user.id).eq("car_id", id);
         if (error) throw error;
@@ -499,12 +791,13 @@ async function toggleFavorite(id) {
     if (wasFavorite) state.favorites.delete(id); else state.favorites.add(id);
     saveLocal();
     render();
+    showToast(wasFavorite ? "הוסר מהמועדפים" : "נשמר במועדפים");
   } catch (error) { showToast(`לא הצלחנו לעדכן מועדפים: ${error.message || "נסו שוב"}`); }
 }
 
 function openCarModal(car = null) {
   state.editId = car?.id || null;
-  state.draft = car ? { ...car, tab: "manual" } : { tab: "link", reliability: 3, economy: 3, safety: 3, performance: 3, maintenance: 3 };
+  state.draft = car ? { ...car, features: [...car.features], tab: "manual" } : { tab: "link", features: [], reliability: 3, economy: 3, safety: 3, performance: 3, maintenance: 3 };
   state.modal = "add";
   render();
 }
@@ -543,7 +836,7 @@ async function importPayload(payload) {
   const importedIds = new Set(state.cars.map((car) => car.id));
   const favorites = new Set(payload.favorites || []);
   state.favorites = new Set([...state.favorites, ...[...favorites].filter((id) => importedIds.has(id))]);
-  if (state.cloud && state.favorites.size) {
+  if (state.cloud && state.favoritesMode === "cloud" && state.favorites.size) {
     const rows = [...favorites].filter((id) => importedIds.has(id)).map((car_id) => ({ user_id: state.user.id, car_id }));
     if (rows.length) {
       const { error } = await state.supabase.from("favorites").upsert(rows, { onConflict: "user_id,car_id", ignoreDuplicates: true });
@@ -563,7 +856,7 @@ function applyExtractedText() {
     showToast(state.draft.listing_text ? "לא זוהו פרטים ברורים. אפשר למלא את הטופס ידנית." : "הדבק את טקסט המודעה או העלה צילום מסך. אתרי מודעות רבים חוסמים קריאה ישירה.");
     return;
   }
-  state.draft = { ...state.draft, ...extracted };
+  state.draft = { ...state.draft, ...extracted, features: [...new Set([...(state.draft.features || []), ...(extracted.features || [])])] };
   render();
   showToast(`זוהו ${Object.keys(extracted).length} פרטים — בדוק אותם לפני שמירה`);
 }
@@ -620,24 +913,74 @@ async function signOut() {
   render();
 }
 
-function updateCarResults() {
+// Partial refresh: keeps slider drag and search focus alive while results update.
+function updateCarResults({ panel = false } = {}) {
   if (state.view !== "cars" && state.view !== "favorites") return;
-  const workspace = document.querySelector(".workspace-content");
-  if (!workspace) return;
-  workspace.innerHTML = renderView();
-  const input = document.querySelector("#car-search");
-  if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+  const results = document.querySelector("#results");
+  if (!results) return render();
+  results.innerHTML = renderResults();
+  const total = number(visibleCars().length);
+  document.querySelectorAll("[data-result-count]").forEach((node) => { node.textContent = total; });
+  const opener = document.querySelector(".filter-open");
+  if (opener) { const n = activeFilterCount(); opener.innerHTML = `${icon("menu", 17)} סינון${n ? ` <span class="nav-count">${n}</span>` : ""}`; }
+  if (panel) {
+    const scroll = document.querySelector(".filter-scroll")?.scrollTop || 0;
+    document.querySelector("#filter-panel").innerHTML = renderFilterPanel();
+    const node = document.querySelector(".filter-scroll");
+    if (node) node.scrollTop = scroll;
+  }
+}
+
+function toggleInList(list, value) {
+  return list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
+}
+
+function updatePriceRange(changed) {
+  const b = dataBounds();
+  const minInput = document.querySelector("#f-price-min");
+  const maxInput = document.querySelector("#f-price-max");
+  let lo = Number(minInput.value);
+  let hi = Number(maxInput.value);
+  if (lo > hi) { if (changed === "min") { lo = hi; minInput.value = lo; } else { hi = lo; maxInput.value = hi; } }
+  state.filters.priceMin = lo <= b.priceMin ? null : lo;
+  state.filters.priceMax = hi >= b.priceMax ? null : hi;
+  const span = Math.max(1, b.priceMax - b.priceMin);
+  const wrap = minInput.closest(".dual-range");
+  wrap.style.setProperty("--lo", `${((lo - b.priceMin) / span) * 100}%`);
+  wrap.style.setProperty("--hi", `${((hi - b.priceMin) / span) * 100}%`);
+  document.querySelector("#price-lo-label").textContent = money(lo);
+  document.querySelector("#price-hi-label").textContent = money(hi);
+  updateCarResults();
 }
 
 app.addEventListener("click", async (event) => {
   const viewButton = event.target.closest("[data-view]");
   if (viewButton) {
     event.preventDefault();
+    if (viewButton.disabled) return;
     state.view = viewButton.dataset.view;
-    state.filter = "all";
+    state.drawerOpen = false;
+    state.filtersOpen = false;
     render();
+    window.scrollTo(0, 0);
     return;
   }
+  const filterToggle = event.target.closest("[data-filter-toggle]");
+  if (filterToggle) {
+    const { filterToggle: group, value } = filterToggle.dataset;
+    state.filters[group] = toggleInList(state.filters[group], value);
+    if (group === "makes") state.filters.models = state.filters.models.filter((key) => !state.filters.makes.length || state.filters.makes.includes(key.split("|")[0]));
+    updateCarResults({ panel: true });
+    return;
+  }
+  const handButton = event.target.closest("[data-hand]");
+  if (handButton) {
+    state.filters.handMax = Number(handButton.dataset.hand) || null;
+    updateCarResults({ panel: true });
+    return;
+  }
+  const favMode = event.target.closest("[data-fav-mode]");
+  if (favMode) { await setFavoritesMode(favMode.dataset.favMode); return; }
   const tabButton = event.target.closest("[data-add-tab]");
   if (tabButton) {
     state.draft.tab = tabButton.dataset.addTab;
@@ -649,14 +992,27 @@ app.addEventListener("click", async (event) => {
   const { action, id } = button.dataset;
   if (action === "open-add") openCarModal();
   if (action === "close-modal" || (action === "backdrop" && event.target === button)) { state.modal = null; state.editId = null; state.importPreview = null; render(); }
-  if (action === "favorite") await toggleFavorite(id);
+  if (action === "favorite") { event.stopPropagation(); await toggleFavorite(id); return; }
   if (action === "compare-toggle") {
     if (state.compareIds.has(id)) state.compareIds.delete(id);
-    else if (state.compareIds.size >= 3) showToast("אפשר להשוות עד שלושה רכבים יחד");
+    else if (state.compareIds.size >= 3) { showToast("אפשר להשוות עד שלושה רכבים יחד — הסירו רכב מהמגירה"); state.drawerOpen = true; }
     else state.compareIds.add(id);
+    if (!state.compareIds.size) state.drawerOpen = false;
     render();
   }
-  if (action === "details") { state.modal = "details"; state.draft = { id }; render(); }
+  if (action === "toggle-drawer") { state.drawerOpen = !state.drawerOpen; render(); }
+  if (action === "clear-compare") { state.compareIds.clear(); state.drawerOpen = false; render(); }
+  if (action === "toggle-filters") { state.filtersOpen = !state.filtersOpen; render(); }
+  if (action === "clear-filters") { state.filters = EMPTY_FILTERS(); state.search = ""; render(); }
+  if (action === "remove-filter") {
+    const { group, value } = button.dataset;
+    if (Array.isArray(state.filters[group])) state.filters[group] = state.filters[group].filter((item) => item !== value);
+    else if (group === "price") { state.filters.priceMin = null; state.filters.priceMax = null; }
+    else state.filters[group] = null;
+    if (group === "makes") state.filters.models = state.filters.models.filter((key) => key.split("|")[0] !== value);
+    updateCarResults({ panel: true });
+  }
+  if (action === "details") { state.modal = "details"; state.draft = { id }; state.drawerOpen = false; render(); }
   if (action === "edit-car") { const car = state.cars.find((item) => item.id === id); if (car) openCarModal(car); }
   if (action === "delete-car") {
     const car = state.cars.find((item) => item.id === id);
@@ -688,13 +1044,31 @@ app.addEventListener("click", async (event) => {
   }
   if (action === "extract-text") applyExtractedText();
   if (action === "signout") await signOut();
-  if (action === "mobile-menu") document.querySelector(".sidebar")?.classList.toggle("mobile-open");
+  if (action === "mobile-menu") document.querySelector(".app-shell")?.classList.toggle("menu-open");
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  if (state.modal) { state.modal = null; state.editId = null; state.importPreview = null; render(); }
+  else if (state.filtersOpen) { state.filtersOpen = false; render(); }
+  else if (state.drawerOpen) { state.drawerOpen = false; render(); }
 });
 
 app.addEventListener("input", (event) => {
   const target = event.target;
   if (target.matches("#car-search")) { state.search = target.value; updateCarResults(); }
   if (target.matches("[data-draft]")) state.draft[target.dataset.draft] = target.value;
+  else if (target.closest("#car-form") && target.name && target.name !== "features") state.draft[target.name] = target.value;
+  if (target.matches("#f-price-min")) updatePriceRange("min");
+  if (target.matches("#f-price-max")) updatePriceRange("max");
+  if (target.matches("#f-mileage")) {
+    const max = Number(target.max);
+    const value = Number(target.value);
+    state.filters.mileageMax = value >= max ? null : value;
+    target.style.setProperty("--fill", `${(value / max) * 100}%`);
+    document.querySelector("#km-label").textContent = value >= max ? "ללא הגבלה" : `עד ${km(value)}`;
+    updateCarResults();
+  }
   if (target.matches("[data-weight]")) {
     const label = document.querySelector(`[data-weight-label="${target.dataset.weight}"]`);
     if (label) label.textContent = `${target.value}/10`;
@@ -703,7 +1077,10 @@ app.addEventListener("input", (event) => {
 
 app.addEventListener("change", async (event) => {
   const target = event.target;
-  if (target.matches("#car-filter")) { state.filter = target.value; updateCarResults(); }
+  if (target.matches("#car-sort")) { state.sort = target.value; updateCarResults(); }
+  if (target.matches("#f-year")) { state.filters.yearMin = Number(target.value) || null; updateCarResults(); }
+  if (target.matches("[data-feature-filter]")) { state.filters.features = toggleInList(state.filters.features, target.dataset.featureFilter); updateCarResults({ panel: true }); }
+  if (target.closest("#car-form") && target.name === "features") state.draft.features = [...document.querySelectorAll('#car-form input[name="features"]:checked')].map((input) => input.value);
   if (target.matches("#car-image")) await runOcr(target.files?.[0]);
   if (target.matches("#json-file, #json-file-modal")) {
     const file = target.files?.[0];
