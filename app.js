@@ -41,28 +41,6 @@ const FUEL_GROUPS = [
   { key: "ev", label: "חשמלי", values: ["חשמלי"] },
 ];
 
-const DEMO_NOTE = "רכב הדגמה — יש לאמת את הפרטים מול המודעה.";
-// [make, model, trim, year, price, km, hand, body, fuel, gear, engine, city, ratings r/e/s/p/m, features]
-const SAMPLE_ROWS = [
-  ["Toyota", "Corolla", "Hybrid Sun", 2022, 112000, 54000, 1, "משפחתית", "היברידי", "אוטומטית", "1.8", "תל אביב", [5, 5, 4, 3, 4], ["reverse_camera", "adaptive_cruise", "carplay", "lane_assist", "keyless"]],
-  ["Toyota", "RAV4", "Hybrid Experience", 2021, 159000, 71000, 2, "רכב פנאי", "היברידי", "אוטומטית", "2.5", "ראשון לציון", [5, 4, 5, 4, 4], ["reverse_camera", "adaptive_cruise", "carplay", "blind_spot", "lane_assist", "keyless", "leather", "heated_seats"]],
-  ["Kia", "Niro", "Hybrid EX", 2021, 105000, 68000, 2, "קרוסאובר", "היברידי", "אוטומטית", "1.6", "חיפה", [4, 5, 4, 3, 4], ["reverse_camera", "adaptive_cruise", "carplay", "parking_sensors"]],
-  ["Kia", "Sportage", "Urban", 2020, 99000, 92000, 2, "רכב פנאי", "בנזין", "אוטומטית", "1.6", "באר שבע", [4, 3, 4, 3, 3], ["reverse_camera", "carplay", "parking_sensors", "heated_seats"]],
-  ["Mazda", "3", "Comfort", 2020, 89000, 76000, 2, "משפחתית", "בנזין", "אוטומטית", "2.0", "ירושלים", [4, 3, 4, 4, 3], ["reverse_camera", "carplay", "blind_spot"]],
-  ["Hyundai", "i30", "Prime", 2019, 72000, 104000, 3, "האצ׳בק", "בנזין", "אוטומטית", "1.4", "נתניה", [4, 3, 4, 3, 4], ["reverse_camera", "carplay", "parking_sensors"]],
-  ["Hyundai", "Ioniq 5", "Premium", 2022, 168000, 42000, 1, "קרוסאובר", "חשמלי", "אוטומטית", "", "הרצליה", [4, 5, 5, 5, 4], ["sunroof", "leather", "reverse_camera", "adaptive_cruise", "blind_spot", "lane_assist", "heated_seats", "keyless", "carplay"]],
-  ["Tesla", "Model 3", "Long Range", 2021, 139000, 63000, 1, "סדאן", "חשמלי", "אוטומטית", "", "פתח תקווה", [4, 5, 5, 5, 3], ["sunroof", "leather", "reverse_camera", "adaptive_cruise", "blind_spot", "lane_assist", "heated_seats", "keyless"]],
-  ["Skoda", "Octavia", "Style TDI", 2019, 84000, 128000, 2, "סטיישן", "דיזל", "רובוטית", "2.0", "רחובות", [4, 4, 4, 3, 3], ["reverse_camera", "adaptive_cruise", "parking_sensors", "carplay", "heated_seats"]],
-  ["Peugeot", "3008", "Allure BlueHDi", 2020, 109000, 88000, 2, "רכב פנאי", "דיזל", "אוטומטית", "1.5", "חדרה", [3, 4, 4, 3, 3], ["sunroof", "reverse_camera", "adaptive_cruise", "carplay", "lane_assist"]],
-  ["Mitsubishi", "Outlander", "PHEV Instyle", 2020, 118000, 82000, 2, "רכב פנאי", "היברידי נטען", "רציפה", "2.4", "מודיעין", [4, 4, 4, 3, 3], ["sunroof", "leather", "reverse_camera", "adaptive_cruise", "heated_seats", "keyless"]],
-  ["Suzuki", "Swift", "GLX", 2021, 69000, 39000, 1, "סופר מיני", "בנזין", "אוטומטית", "1.2", "אשדוד", [5, 4, 3, 2, 5], ["reverse_camera", "carplay"]],
-  ["Seat", "Leon", "FR", 2021, 104000, 58000, 1, "האצ׳בק", "בנזין", "רובוטית", "1.5", "כפר סבא", [3, 3, 4, 4, 3], ["reverse_camera", "adaptive_cruise", "carplay", "lane_assist", "parking_sensors"]],
-  ["BYD", "Atto 3", "Comfort", 2023, 129000, 28000, 1, "קרוסאובר", "חשמלי", "אוטומטית", "", "חולון", [3, 5, 5, 4, 4], ["sunroof", "leather", "reverse_camera", "adaptive_cruise", "carplay", "lane_assist", "keyless"]],
-];
-const SAMPLE_CARS = SAMPLE_ROWS.map(([make, model, trim, year, price_ils, mileage_km, owners, body_type, fuel_type, transmission, engine, city, [reliability, economy, safety, performance, maintenance], features], index) => ({
-  id: `demo-${index + 1}`, title: `${make} ${model}`, make, model, trim, year, price_ils, mileage_km, owners, body_type, fuel_type, transmission, engine, city,
-  source_url: "", notes: DEMO_NOTE, reliability, economy, safety, performance, maintenance, features, created_by: "local", created_at: new Date(Date.now() - index * 3600e3).toISOString(),
-}));
 
 const EMPTY_FILTERS = () => ({ makes: [], models: [], priceMin: null, priceMax: null, yearMin: null, mileageMax: null, fuels: [], handMax: null, features: [] });
 
@@ -157,14 +135,15 @@ function readLocal() {
   try {
     const saved = JSON.parse(localStorage.getItem(LOCAL_KEY) || localStorage.getItem(LEGACY_LOCAL_KEY) || "null");
     if (saved) {
-      state.cars = (saved.cars || []).map(defaultCarShape);
+      // Drop the old built-in demo cars; only cars the user added or imported are kept.
+      state.cars = (saved.cars || []).filter((car) => !String(car?.id || "").startsWith("demo-")).map(defaultCarShape);
       state.profile = { ...DEFAULT_PROFILE, ...(saved.profile || {}), weights: { ...DEFAULT_PROFILE.weights, ...(saved.profile?.weights || {}) } };
-      state.favorites = new Set(saved.favorites || []);
+      state.favorites = new Set((saved.favorites || []).filter((id) => !String(id).startsWith("demo-")));
       return;
     }
   } catch { /* Ignore invalid browser storage and start a clean demo. */ }
-  state.cars = SAMPLE_CARS.map(defaultCarShape);
-  state.favorites = new Set(["demo-1"]);
+  state.cars = [];
+  state.favorites = new Set();
   saveLocal();
 }
 
@@ -367,7 +346,7 @@ function navButton(view, label, iconName, count = null) {
 function renderShell() {
   const favCount = state.favorites.size;
   const compareCount = state.compareIds.size;
-  const identity = state.cloud ? (state.user?.email || "החשבון שלי") : "מצב הדגמה";
+  const identity = state.cloud ? (state.user?.email || "החשבון שלי") : "משתמש מקומי";
   return `<div class="app-shell ${state.compareIds.size && state.view !== "compare" ? "has-drawer" : ""}">
     <div class="sidebar-backdrop" data-action="mobile-menu"></div>
     <aside class="sidebar">
@@ -379,7 +358,7 @@ function renderShell() {
       <div class="account-card"><span class="avatar">${html((state.profile.display_name || identity).slice(0, 1).toUpperCase())}</span><span class="account-copy"><b>${html(state.profile.display_name || identity)}</b><small>${state.cloud ? "חשבון מחובר" : "הנתונים נשמרים בדפדפן"}</small></span>${state.cloud ? `<button class="icon-button account-action" title="יציאה" data-action="signout">↪</button>` : ""}</div>
     </aside>
     <div class="main-column">
-      <header class="topbar"><button class="mobile-menu icon-button" aria-label="תפריט" data-action="mobile-menu">${icon("menu")}</button><div class="breadcrumb"><span>CarSift</span><span class="crumb-dot">/</span><b>${state.view === "cars" ? "מאגר הרכבים" : state.view === "compare" ? "השוואה" : state.view === "favorites" ? "המועדפים שלי" : "פרופיל חיפוש"}</b></div><div class="top-actions"><span class="connection-pill ${state.cloud ? "connected" : "local"}"><i></i>${state.cloud ? "מסד משותף" : "הדגמה מקומית"}</span><button class="top-icon" title="ייבוא JSON" data-action="import-file">${icon("upload", 18)}</button><button class="top-icon" title="ייצוא JSON" data-action="export">${icon("download", 18)}</button><button class="avatar top-avatar" data-view="profile">${html((state.profile.display_name || identity).slice(0, 1).toUpperCase())}</button></div></header>
+      <header class="topbar"><button class="mobile-menu icon-button" aria-label="תפריט" data-action="mobile-menu">${icon("menu")}</button><div class="breadcrumb"><span>CarSift</span><span class="crumb-dot">/</span><b>${state.view === "cars" ? "מאגר הרכבים" : state.view === "compare" ? "השוואה" : state.view === "favorites" ? "המועדפים שלי" : "פרופיל חיפוש"}</b></div><div class="top-actions"><span class="connection-pill ${state.cloud ? "connected" : "local"}"><i></i>${state.cloud ? "מסד משותף" : "שמור במכשיר"}</span><button class="top-icon" title="ייבוא JSON" data-action="import-file">${icon("upload", 18)}</button><button class="top-icon" title="ייצוא JSON" data-action="export">${icon("download", 18)}</button><button class="avatar top-avatar" data-view="profile">${html((state.profile.display_name || identity).slice(0, 1).toUpperCase())}</button></div></header>
       <main class="workspace-content">${state.loading ? `<div class="loading-panel"><span class="spinner"></span><span>טוענים את המאגר שלך…</span></div>` : renderView()}</main>
     </div>
     <nav class="mobile-nav">${navButton("cars", "רכבים", "cars")}${navButton("compare", "השוואה", "compare", compareCount)}${navButton("favorites", "מועדפים", "heart", favCount)}${navButton("profile", "פרופיל", "profile")}</nav>
@@ -574,8 +553,7 @@ function renderSiteSearch() {
 }
 
 function renderFavTypes() {
-  const makes = [...new Set(state.cars.map((car) => car.make).filter(Boolean))].sort((a, b) => a.localeCompare(b, "he"));
-  if (!makes.length) return "";
+  const makes = allMakes();
   return `<section class="fav-types"><div class="fav-types-head"><div><h3>סוגי הרכב האהובים עליי</h3><p>בחר כמה יצרנים שמעניינים אותך. רכבים מהם יסומנו בכוכב.</p></div>${state.favMakes.size ? `<button type="button" class="chip ${state.onlyFavMakes ? "on" : ""}" aria-pressed="${state.onlyFavMakes}" data-only-fav-makes>${state.onlyFavMakes ? icon("check", 13) : ""}<span>הצג רק אותם</span></button>` : ""}</div><div class="chip-row">${makes.map((make) => { const on = state.favMakes.has(make); return `<button type="button" class="chip ${on ? "on" : ""}" aria-pressed="${on}" data-fav-make="${html(make)}">${on ? icon("heart", 13) : ""}<span>${html(make)}</span></button>`; }).join("")}</div></section>`;
 }
 
@@ -647,6 +625,8 @@ function renderCompare() {
     ${cars.length < 2 ? `<div class="empty-state compare-empty"><span class="empty-icon">${icon("compare", 27)}</span><h3>${cars.length ? "צריך עוד רכב אחד להשוואה" : "בחר לפחות שני רכבים"}</h3><p>חזור למאגר ולחץ על כפתור ההשוואה בכרטיסים. אפשר להשוות עד שלושה רכבים יחד.</p><button class="primary-button" data-view="cars">בחירת רכבים ${icon("arrow", 15)}</button></div>` : `<section class="comparison-wrap"><div class="comparison-header"><div class="comparison-label">${icon("shield", 18)} השוואה לפי הפרופיל שלך</div><button class="text-button small" data-action="clear-compare">ניקוי ההשוואה</button></div><div class="table-scroll">${compareTable(cars, true)}</div><div class="comparison-note">${icon("bolt", 16)} ציוני הרכב הם הערכות ראשוניות. כדאי לאמת מצב מכני, היסטוריית טיפולים ותאונות לפני קנייה.</div></section>`}`;
 }
 
+const COMMON_MAKES = ["Toyota", "Hyundai", "Kia", "Mazda", "Skoda", "Volkswagen", "Suzuki", "Nissan", "Honda", "Mitsubishi", "Seat", "Renault", "Peugeot", "Citroen", "Chevrolet", "Ford", "BMW", "Mercedes-Benz", "Audi", "Tesla", "BYD", "Volvo", "MG", "Subaru", "Dacia"];
+const allMakes = () => [...new Set([...COMMON_MAKES, ...state.cars.map((car) => car.make), ...state.favMakes].filter(Boolean))].sort((a, b) => a.localeCompare(b, "he"));
 const prefList = (value) => String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
 
 function multiPick(name, label, values, selectedValue, wide = false) {
@@ -663,7 +643,7 @@ function renderProfile() {
   const weights = p.weights || DEFAULT_PROFILE.weights;
   const slider = (key, label, value) => `<label class="weight-control"><span><b>${label}</b><strong data-weight-label="${key}">${value}/10</strong></span><input type="range" name="weight_${key}" min="0" max="10" value="${html(value)}" data-weight="${key}" /></label>`;
   return `<section class="page-head"><div><div class="eyebrow"><span class="eyebrow-line"></span> הגדרות אישיות</div><h1>מה חשוב לך ברכב?</h1><p>הדרישות נשמרות בנפרד לכל משתמש ומשפיעות על ציוני ההתאמה.</p></div><span class="private-badge">${icon("shield", 15)} אישי ופרטי</span></section>
-    <form id="profile-form" class="profile-layout"><div class="profile-main"><section class="form-panel"><div class="panel-heading"><span class="panel-number">01</span><div><h2>דרישות בסיס</h2><p>סינון ההעדפות העיקריות שלך</p></div></div><div class="form-grid two"><label class="field"><span>שם להצגה</span><input name="display_name" value="${html(p.display_name)}" placeholder="איך לפנות אליך?" maxlength="50" /></label><label class="field"><span>תקציב מקסימלי</span><div class="input-with-suffix"><input name="budget_max" type="number" min="0" step="1000" value="${html(p.budget_max)}" /><em>₪</em></div></label><label class="field"><span>שנתון מינימלי</span><input name="year_min" type="number" min="1980" max="2100" value="${html(p.year_min)}" /></label><label class="field"><span>קילומטראז׳ מקסימלי</span><div class="input-with-suffix"><input name="mileage_max" type="number" min="0" step="5000" value="${html(p.mileage_max)}" /><em>ק״מ</em></div></label><label class="field"><span>מספר בעלים מקסימלי</span><select name="owners_max">${selectOptions(["1", "2", "3", "4", "5"], String(p.owners_max))}</select></label>${multiPick("body_type", "סוג רכב מועדף", ["משפחתית", "סופר מיני", "קרוסאובר", "רכב פנאי", "האצ׳בק", "סדאן", "סטיישן", "קופה", "מסחרי"], p.body_type, true)}${multiPick("fuel_type", "סוג הנעה מועדף", ["בנזין", "דיזל", "היברידי", "היברידי נטען", "חשמלי", "גפ״מ"], p.fuel_type, true)}${multiPick("transmission", "תיבת הילוכים מועדפת", ["אוטומטית", "ידנית", "רובוטית", "רציפה"], p.transmission, true)}${multiPick("fav_make", "יצרנים אהובים", [...new Set([...state.cars.map((car) => car.make), ...state.favMakes].filter(Boolean))].sort((a, b) => a.localeCompare(b, "he")), [...state.favMakes], true)}</div></section>
+    <form id="profile-form" class="profile-layout"><div class="profile-main"><section class="form-panel"><div class="panel-heading"><span class="panel-number">01</span><div><h2>דרישות בסיס</h2><p>סינון ההעדפות העיקריות שלך</p></div></div><div class="form-grid two"><label class="field"><span>שם להצגה</span><input name="display_name" value="${html(p.display_name)}" placeholder="איך לפנות אליך?" maxlength="50" /></label><label class="field"><span>תקציב מקסימלי</span><div class="input-with-suffix"><input name="budget_max" type="number" min="0" step="1000" value="${html(p.budget_max)}" /><em>₪</em></div></label><label class="field"><span>שנתון מינימלי</span><input name="year_min" type="number" min="1980" max="2100" value="${html(p.year_min)}" /></label><label class="field"><span>קילומטראז׳ מקסימלי</span><div class="input-with-suffix"><input name="mileage_max" type="number" min="0" step="5000" value="${html(p.mileage_max)}" /><em>ק״מ</em></div></label><label class="field"><span>מספר בעלים מקסימלי</span><select name="owners_max">${selectOptions(["1", "2", "3", "4", "5"], String(p.owners_max))}</select></label>${multiPick("body_type", "סוג רכב מועדף", ["משפחתית", "סופר מיני", "קרוסאובר", "רכב פנאי", "האצ׳בק", "סדאן", "סטיישן", "קופה", "מסחרי"], p.body_type, true)}${multiPick("fuel_type", "סוג הנעה מועדף", ["בנזין", "דיזל", "היברידי", "היברידי נטען", "חשמלי", "גפ״מ"], p.fuel_type, true)}${multiPick("transmission", "תיבת הילוכים מועדפת", ["אוטומטית", "ידנית", "רובוטית", "רציפה"], p.transmission, true)}${multiPick("fav_make", "יצרנים אהובים", allMakes(), [...state.favMakes], true)}</div></section>
       <section class="form-panel"><div class="panel-heading"><span class="panel-number">02</span><div><h2>מה מקבל יותר משקל?</h2><p>הזז את הסרגלים כדי להתאים את חישוב הציון</p></div></div><div class="weights-grid">${slider("reliability", "אמינות", weights.reliability)}${slider("economy", "צריכת דלק", weights.economy)}${slider("safety", "בטיחות", weights.safety)}${slider("maintenance", "עלויות אחזקה", weights.maintenance)}${slider("performance", "ביצועים", weights.performance)}</div></section>
       <section class="form-panel"><div class="panel-heading"><span class="panel-number">03</span><div><h2>דגמים ופרטים לפסילה</h2><p>הוסף מילות מפתח שלא תרצה לראות בציון גבוה</p></div></div><label class="field"><span>מילים או דגמים, מופרדים בפסיק</span><input name="excluded_terms" value="${html((p.excluded_terms || []).join(", "))}" placeholder="לדוגמה: מנוע 1.2, דגם מסוים" /></label><div class="form-hint">רכב שתואם למילה מהרשימה יקבל הפחתה בציון. אפשר לערוך את הפרופיל בכל עת.</div></section>
       <section class="form-panel"><div class="panel-heading"><span class="panel-number">04</span><div><h2>שמירת מועדפים</h2><p>איפה לשמור את הרכבים שסימנת בלב</p></div></div>${state.cloud ? `<div class="segmented wide" role="radiogroup" aria-label="מיקום שמירת מועדפים"><button type="button" role="radio" aria-checked="${state.favoritesMode === "cloud"}" class="${state.favoritesMode === "cloud" ? "on" : ""}" data-fav-mode="cloud">${icon("shield", 15)} בחשבון (Supabase)</button><button type="button" role="radio" aria-checked="${state.favoritesMode === "local"}" class="${state.favoritesMode === "local" ? "on" : ""}" data-fav-mode="local">${icon("download", 15)} במכשיר הזה</button></div><div class="form-hint">בחשבון — מסונכרן בין מכשירים. במכשיר — נשמר ב-localStorage של הדפדפן בלבד. במעבר לחשבון, המועדפים מהמכשיר מתווספים אליו.</div>` : `<div class="form-hint">${icon("download", 15)} במצב הדגמה המועדפים נשמרים ב-localStorage של הדפדפן. אחרי חיבור Supabase תוכלו לבחור לסנכרן אותם לחשבון.</div>`}</section>
