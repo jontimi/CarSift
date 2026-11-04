@@ -500,3 +500,9 @@ input[type="range"]::-moz-range-thumb { width: 15px; height: 15px; border-radius
 .chip-check span { display: inline-block; padding: 6px 14px; border-radius: 999px; border: 1px solid rgba(128,128,128,.4); font-size: .9rem; }
 .chip-check input:checked + span { background: #1f9d6b; border-color: #1f9d6b; color: #fff; font-weight: 700; }
 .chip-check input:focus-visible + span { outline: 2px solid currentColor; outline-offset: 2px; }
+
+.import-how { flex-basis: 100%; font-size: .9rem; }
+.import-how summary { cursor: pointer; font-weight: 700; }
+.import-how ol { margin: 8px 0; padding-inline-start: 20px; line-height: 1.7; }
+.import-how .hint { margin: 4px 0 0; font-size: .8rem; opacity: .7; }
+a.bookmarklet { display: inline-block; padding: 3px 12px; border-radius: 999px; background: #1f9d6b; color: #fff; font-weight: 700; text-decoration: none; cursor: grab; }

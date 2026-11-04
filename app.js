@@ -549,7 +549,8 @@ function openSiteSearch(site) {
 }
 
 function renderSiteSearch() {
-  return `<section class="site-search"><div><h3>חיפוש באתרי מודעות</h3><p>פותח חיפוש באתר לפי היצרן, הדגם והשנתון שבחרת בסינון. את המודעה שמצאת אפשר להוסיף כאן עם "הוספת רכב".</p></div><div class="chip-row">${SEARCH_SITES.map(([site, label]) => `<button type="button" class="chip" data-site-search="${html(site)}">${icon("arrow", 13)}<span>${html(label)}</span></button>`).join("")}</div></section>`;
+  return `<section class="site-search"><div><h3>חיפוש באתרי מודעות</h3><p>פותח חיפוש באתר לפי היצרן, הדגם והשנתון שבחרת בסינון.</p></div><div class="chip-row">${SEARCH_SITES.map(([site, label]) => `<button type="button" class="chip" data-site-search="${html(site)}">${icon("arrow", 13)}<span>${html(label)}</span></button>`).join("")}</div>
+    <details class="import-how"><summary>איך מביאים מודעות מהאתר לכאן?</summary><ol><li>גררו את הכפתור <a class="bookmarklet" href="${html(bookmarkletHref())}" onclick="return false" draggable="true">CarSift ⬅ ייבוא</a> אל שורת הסימניות בדפדפן (פעם אחת).</li><li>חפשו באתר (יד2, פייסבוק מרקטפלייס, או אחר) ופתחו עמוד תוצאות או מודעה בודדת.</li><li>לחצו על הסימנייה. CarSift ייפתח עם רשימת הרכבים לאישור.</li></ol><p class="hint">הסימנייה קוראת רק את המודעות שמוצגות בעמוד שאתם פתחתם, בדפדפן שלכם. אין שרת באמצע. עובד הכי טוב ביד2; באתרים אחרים ובפייסבוק הקריאה פחות מדויקת וייתכן שחלק מהפרטים (למשל ק״מ) יחסרו.</p></details></section>`;
 }
 
 function renderFavTypes() {
@@ -627,6 +628,188 @@ function renderCompare() {
 
 const COMMON_MAKES = ["Toyota", "Hyundai", "Kia", "Mazda", "Skoda", "Volkswagen", "Suzuki", "Nissan", "Honda", "Mitsubishi", "Seat", "Renault", "Peugeot", "Citroen", "Chevrolet", "Ford", "BMW", "Mercedes-Benz", "Audi", "Tesla", "BYD", "Volvo", "MG", "Subaru", "Dacia"];
 const allMakes = () => [...new Set([...COMMON_MAKES, ...state.cars.map((car) => car.make), ...state.favMakes].filter(Boolean))].sort((a, b) => a.localeCompare(b, "he"));
+
+/* ---------- Import from ad sites (Yad2, Facebook Marketplace, others) ---------- */
+const MAKE_ALIASES = [
+  ["Toyota", ["טויוטה", "טיוטה"]], ["Hyundai", ["יונדאי", "הונדאי"]], ["Kia", ["קיה"]], ["Mazda", ["מאזדה", "מזדה"]],
+  ["Skoda", ["סקודה"]], ["Volkswagen", ["פולקסווגן", "פולקסוואגן", "וולקסווגן", "VW"]], ["Suzuki", ["סוזוקי"]], ["Nissan", ["ניסאן"]],
+  ["Honda", ["הונדה"]], ["Mitsubishi", ["מיצובישי"]], ["Seat", ["סיאט"]], ["Renault", ["רנו"]], ["Peugeot", ["פיג'ו", "פג'ו", "פיז'ו"]],
+  ["Citroen", ["סיטרואן", "Citroën"]], ["Chevrolet", ["שברולט"]], ["Ford", ["פורד"]], ["BMW", ["במוו", "ב.מ.וו", "ב מ וו"]],
+  ["Mercedes-Benz", ["מרצדס", "Mercedes"]], ["Audi", ["אאודי"]], ["Tesla", ["טסלה"]], ["BYD", ["ביד", "בי וואי די"]],
+  ["Volvo", ["וולוו"]], ["MG", ["אם ג'י", "אמ ג'י"]], ["Subaru", ["סובארו"]], ["Dacia", ["דאצ'יה", "דאציה"]],
+  ["Opel", ["אופל"]], ["Fiat", ["פיאט"]], ["Jeep", ["ג'יפ"]], ["Lexus", ["לקסוס"]], ["Cupra", ["קופרה"]], ["Chery", ["צ'רי"]],
+  ["Geely", ["ג'ילי"]], ["Porsche", ["פורשה"]], ["Land Rover", ["לנד רובר"]], ["Mini", ["מיני"]], ["Alfa Romeo", ["אלפא רומיאו"]],
+];
+function canonicalMake(text) {
+  const t = String(text || "").trim().toLowerCase();
+  if (!t) return "";
+  for (const [en, aliases] of MAKE_ALIASES) if (t === en.toLowerCase() || aliases.some((a) => a.toLowerCase() === t)) return en;
+  return String(text).trim();
+}
+function detectMake(title) {
+  const t = ` ${String(title || "").toLowerCase()} `;
+  for (const [en, aliases] of MAKE_ALIASES) {
+    for (const name of [en, ...aliases]) {
+      const needle = name.toLowerCase();
+      if (needle.length > 2 && t.includes(` ${needle} `)) return { make: en, matched: name };
+      if (needle.length > 2 && t.includes(` ${needle}`) && /[֐-׿]/.test(needle)) return { make: en, matched: name };
+    }
+  }
+  return null;
+}
+function mapFuel(text) {
+  const t = String(text || "");
+  if (/נטען|פלאג|plug/i.test(t)) return "היברידי נטען";
+  if (/היברידי|hybrid/i.test(t)) return "היברידי";
+  if (/חשמל|electric|\bev\b/i.test(t)) return "חשמלי";
+  if (/דיזל|diesel/i.test(t)) return "דיזל";
+  if (/בנזין|petrol|gasoline/i.test(t)) return "בנזין";
+  if (/גפ"?מ|גפ״מ|lpg/i.test(t)) return "גפ״מ";
+  return "";
+}
+function mapGear(text) {
+  const t = String(text || "");
+  if (/אוט[׳'"]?|automatic/i.test(t)) return "אוטומטית";
+  if (/ידני|ידנית|manual/i.test(t)) return "ידנית";
+  if (/רובוטי/.test(t)) return "רובוטית";
+  if (/רציפ/.test(t)) return "רציפה";
+  return "";
+}
+function normalizeWebCar(raw) {
+  const title = String(raw.title || "");
+  let make = canonicalMake(raw.make);
+  let model = String(raw.model || "").trim();
+  let year = Number(raw.year) || null;
+  const yearMatch = title.match(/\b(19[89]\d|20[0-3]\d)\b/);
+  if (!year && yearMatch) year = Number(yearMatch[1]);
+  if (!make) {
+    const found = detectMake(title);
+    if (found) {
+      make = found.make;
+      if (!model) model = title.replace(new RegExp(found.matched.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"), "").replace(/\b(19[89]\d|20[0-3]\d)\b/, "").replace(/\s+/g, " ").trim();
+    }
+  }
+  if (!model && title) model = title.replace(/\b(19[89]\d|20[0-3]\d)\b/, "").replace(/\s+/g, " ").trim();
+  const trim = String(raw.trim || "").trim();
+  const source = raw.source || "אתר מודעות";
+  return {
+    title: [make, model].filter(Boolean).join(" ") || title || "רכב ללא שם", make, model, trim, year,
+    price_ils: Number(raw.price_ils) || null, mileage_km: Number(raw.mileage_km) || null, owners: Number(raw.owners) || null,
+    fuel_type: mapFuel(raw.fuel_raw || raw.fuel_type || `${trim} ${title}`), transmission: mapGear(`${trim} ${title}`),
+    engine: String(raw.engine || ""), city: String(raw.city || ""), source_url: String(raw.source_url || ""),
+    notes: `יובא מ-${source}. יש לאמת את הפרטים מול המודעה${raw.mileage_km ? "" : " (הקילומטראז׳ לא הופיע ברשימה)"}.`,
+  };
+}
+function prepareWebPayload(payload) {
+  if (!payload || !payload.web || !Array.isArray(payload.cars)) return payload;
+  const seen = new Set(state.cars.map((car) => car.source_url).filter(Boolean));
+  const seenKeys = new Set(state.cars.map((car) => [car.make, car.model, car.year, car.price_ils].join("|")));
+  const cars = [];
+  for (const raw of payload.cars.slice(0, 300)) {
+    if (!raw || typeof raw !== "object") continue;
+    const car = normalizeWebCar(raw);
+    if (!car.price_ils && !car.year && !car.make) continue;
+    const key = [car.make, car.model, car.year, car.price_ils].join("|");
+    if ((car.source_url && seen.has(car.source_url)) || (!car.source_url && seenKeys.has(key))) continue;
+    if (car.source_url) seen.add(car.source_url); else seenKeys.add(key);
+    cars.push({ ...car, id: crypto.randomUUID() });
+  }
+  return { app: "CarSift", version: 1, cars };
+}
+
+/* This function becomes a browser bookmark. It runs on the ad site's own page, in the user's browser,
+   reads the listings already on screen and sends them back to CarSift in the URL hash (no server involved). */
+function bookmarkletMain(APP) {
+  var cars = [], seen = {};
+  function num(v) { var t = String(v == null ? "" : v); var n = Number(t.replace(/[^\d.]/g, "")); if (/\d\s*k\b/i.test(t)) n *= 1000; return isFinite(n) && n > 0 ? n : null; }
+  function add(c) { var k = c.source_url || [c.title, c.price_ils, c.year].join("|"); if (seen[k]) return; seen[k] = 1; cars.push(c); }
+  function yad2(a) {
+    if (!a || typeof a !== "object" || !a.manufacturer || !a.model) return false;
+    var ev = Number(a.engineVolume) || 0;
+    add({ make: a.manufacturer.text, model: a.model.text, trim: (a.subModel && a.subModel.text) || "", year: (a.vehicleDates && a.vehicleDates.yearOfProduction) || null,
+      price_ils: a.price || null, owners: (a.hand && a.hand.id) || null, fuel_raw: (a.engineType && a.engineType.text) || "",
+      engine: ev ? (ev > 100 ? (ev / 1000).toFixed(1) : String(ev)) : "", mileage_km: num(a.km),
+      city: (a.address && ((a.address.city && a.address.city.text) || (a.address.area && a.address.area.text))) || "",
+      source_url: a.token ? "https://www.yad2.co.il/item/" + a.token : "", source: "Yad2" });
+    return true;
+  }
+  try {
+    var nd = document.getElementById("__NEXT_DATA__");
+    if (nd) {
+      var qs = JSON.parse(nd.textContent).props.pageProps.dehydratedState.queries || [];
+      qs.forEach(function (q) {
+        var d = q.state && q.state.data; if (!d) return;
+        if (!yad2(d)) ["ads", "platinum", "boost", "solo", "commercial"].forEach(function (k) { if (Array.isArray(d[k])) d[k].forEach(yad2); });
+      });
+    }
+  } catch (e) {}
+  if (!cars.length) {
+    document.querySelectorAll('script[type="application/ld+json"]').forEach(function (sc) {
+      try {
+        var walk = function (o) {
+          if (!o || typeof o !== "object") return;
+          if (Array.isArray(o)) { o.forEach(walk); return; }
+          if (o["@graph"]) walk(o["@graph"]);
+          if (o.itemListElement) walk(o.itemListElement);
+          if (o.item) walk(o.item);
+          var type = [].concat(o["@type"] || []).join(" ");
+          if (/Car|Vehicle|Product/i.test(type) && o.name) {
+            var offer = [].concat(o.offers || [])[0] || {};
+            add({ title: o.name, price_ils: num(offer.price), year: num(o.vehicleModelDate || o.productionDate), mileage_km: num(o.mileageFromOdometer && (o.mileageFromOdometer.value || o.mileageFromOdometer)),
+              make: (o.brand && (o.brand.name || o.brand)) || "", model: o.model && (o.model.name || o.model) || "", fuel_raw: o.fuelType || "", source_url: o.url || offer.url || "", source: location.hostname });
+          }
+        };
+        walk(JSON.parse(sc.textContent));
+      } catch (e) {}
+    });
+  }
+  if (!cars.length && /facebook\.com/.test(location.hostname)) {
+    document.querySelectorAll('a[href*="/marketplace/item/"]').forEach(function (a) {
+      var lines = (a.innerText || "").split("\n").map(function (t) { return t.trim(); }).filter(Boolean);
+      if (lines.length < 2) return;
+      var priceLine = lines.filter(function (t) { return /₪|ILS|NIS/.test(t) && /\d/.test(t); })[0];
+      var kmLine = lines.filter(function (t) { return /ק"?מ|km/i.test(t) && /\d/.test(t); })[0];
+      var rest = lines.filter(function (t) { return t !== priceLine && t !== kmLine; });
+      var title = rest.filter(function (t) { return /[A-Za-z֐-׿]/.test(t); })[0];
+      if (!title) return;
+      var loc = rest.filter(function (t) { return t !== title; })[0];
+      add({ title: title, price_ils: num(priceLine), mileage_km: kmLine ? num(kmLine) : null, city: loc || "", source_url: a.href.split("?")[0], source: "Facebook Marketplace" });
+    });
+  }
+  if (!cars.length) {
+    document.querySelectorAll("a[href]").forEach(function (a) {
+      var t = (a.innerText || "").trim();
+      if (t.length < 15 || t.length > 400) return;
+      var price = t.match(/(\d{1,3}(?:[,.]\d{3})+|\d{4,7})\s*(?:₪|ש"ח|שח)|(?:₪)\s*(\d{1,3}(?:[,.]\d{3})+|\d{4,7})/);
+      var year = t.match(/\b(19[89]\d|20[0-3]\d)\b/);
+      if (!price || !year) return;
+      var lines = t.split("\n").map(function (x) { return x.trim(); }).filter(Boolean);
+      var title = lines.filter(function (x) { return /[A-Za-z֐-׿]/.test(x) && !/₪|ש"ח/.test(x); })[0];
+      if (!title) return;
+      add({ title: title, price_ils: num(price[1] || price[2]), year: Number(year[1]), source_url: a.href.split("#")[0], source: location.hostname });
+    });
+  }
+  if (!cars.length) { alert("CarSift: לא מצאתי מודעות בעמוד הזה. נסו עמוד תוצאות או עמוד רכב בודד."); return; }
+  var payload = { app: "CarSift", version: 1, web: true, source: location.hostname, cars: cars };
+  var b64 = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+  window.open(APP + "#import=" + b64, "_blank");
+}
+const bookmarkletHref = () => `javascript:${encodeURIComponent(`(${bookmarkletMain.toString()})(${JSON.stringify(location.origin + location.pathname)})`)}`;
+
+function consumeHashImport() {
+  const match = location.hash.match(/^#import=(.+)$/);
+  if (!match) return;
+  try {
+    const payload = JSON.parse(decodeURIComponent(escape(atob(match[1]))));
+    history.replaceState(null, "", location.pathname + location.search);
+    const prepared = prepareWebPayload(payload);
+    state.view = "cars";
+    state.modal = "import";
+    state.importPreview = prepared;
+    if (!prepared.cars.length) { state.importPreview = null; state.modal = null; showToast("כל המודעות כבר קיימות אצלך"); }
+  } catch { history.replaceState(null, "", location.pathname + location.search); showToast("לא הצלחנו לקרוא את הנתונים מהאתר"); }
+}
+
 const prefList = (value) => String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
 
 function multiPick(name, label, values, selectedValue, wide = false) {
@@ -713,6 +896,7 @@ function renderDeniedGate() {
 
 function render() {
   ensurePrefs();
+  if (!state.hashChecked && !state.loading && !state.authRequired && !state.authDenied) { state.hashChecked = true; consumeHashImport(); }
   const y = window.scrollY;
   const filterScroll = document.querySelector(".filter-scroll")?.scrollTop || 0;
   app.innerHTML = renderShell();
@@ -872,6 +1056,7 @@ function exportData() {
 }
 
 async function importPayload(payload) {
+  if (payload && payload.web) payload = prepareWebPayload(payload);
   if (!payload || !Array.isArray(payload.cars) || payload.app !== "CarSift") throw new Error("זה לא נראה כמו קובץ גיבוי של CarSift");
   const currentIds = new Set(state.cars.map((car) => car.id));
   const newCars = payload.cars.filter((car) => car && car.id && !currentIds.has(car.id)).map(defaultCarShape);
