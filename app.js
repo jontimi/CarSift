@@ -339,9 +339,11 @@ function scoreCar(car) {
   if (profile.year_min > 0 && car.year && car.year < profile.year_min) constraints -= Math.min(24, (profile.year_min - car.year) * 7);
   if (profile.mileage_max > 0 && car.mileage_km > profile.mileage_max) constraints -= Math.min(22, ((car.mileage_km - profile.mileage_max) / profile.mileage_max) * 35);
   if (car.owners && profile.owners_max && car.owners > profile.owners_max) constraints -= Math.min(18, (car.owners - profile.owners_max) * 8);
-  if (profile.body_type && car.body_type && car.body_type !== profile.body_type) constraints -= 12;
-  if (profile.fuel_type && car.fuel_type && car.fuel_type !== profile.fuel_type) constraints -= 10;
-  if (profile.transmission && car.transmission && car.transmission !== profile.transmission) constraints -= 10;
+  const wantBody = prefList(profile.body_type), wantFuel = prefList(profile.fuel_type), wantGear = prefList(profile.transmission);
+  if (wantBody.length && car.body_type && !wantBody.includes(car.body_type)) constraints -= 12;
+  if (wantFuel.length && car.fuel_type && !wantFuel.includes(car.fuel_type)) constraints -= 10;
+  if (wantGear.length && car.transmission && !wantGear.includes(car.transmission)) constraints -= 10;
+  if (state.favMakes.size && car.make && !state.favMakes.has(car.make)) constraints -= 4;
   const weights = profile.weights || DEFAULT_PROFILE.weights;
   const features = ["reliability", "economy", "safety", "maintenance", "performance"];
   const totalWeight = features.reduce((total, key) => total + (Number(weights[key]) || 0), 0) || 1;
@@ -645,6 +647,13 @@ function renderCompare() {
     ${cars.length < 2 ? `<div class="empty-state compare-empty"><span class="empty-icon">${icon("compare", 27)}</span><h3>${cars.length ? "צריך עוד רכב אחד להשוואה" : "בחר לפחות שני רכבים"}</h3><p>חזור למאגר ולחץ על כפתור ההשוואה בכרטיסים. אפשר להשוות עד שלושה רכבים יחד.</p><button class="primary-button" data-view="cars">בחירת רכבים ${icon("arrow", 15)}</button></div>` : `<section class="comparison-wrap"><div class="comparison-header"><div class="comparison-label">${icon("shield", 18)} השוואה לפי הפרופיל שלך</div><button class="text-button small" data-action="clear-compare">ניקוי ההשוואה</button></div><div class="table-scroll">${compareTable(cars, true)}</div><div class="comparison-note">${icon("bolt", 16)} ציוני הרכב הם הערכות ראשוניות. כדאי לאמת מצב מכני, היסטוריית טיפולים ותאונות לפני קנייה.</div></section>`}`;
 }
 
+const prefList = (value) => String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
+
+function multiPick(name, label, values, selectedValue, wide = false) {
+  const chosen = new Set(Array.isArray(selectedValue) ? selectedValue : prefList(selectedValue));
+  return `<fieldset class="field multi-field ${wide ? "wide-field" : ""}"><span>${label} <small>(אפשר לבחור כמה)</small></span><div class="chip-row">${values.map((value) => `<label class="chip-check"><input type="checkbox" name="${name}" value="${html(value)}" ${chosen.has(value) ? "checked" : ""} /><span>${html(value)}</span></label>`).join("")}</div></fieldset>`;
+}
+
 function selectOptions(values, selected = "", placeholder = "לא משנה") {
   return `<option value="">${placeholder}</option>${values.map((value) => `<option value="${html(value)}" ${selected === value ? "selected" : ""}>${html(value)}</option>`).join("")}`;
 }
@@ -654,7 +663,7 @@ function renderProfile() {
   const weights = p.weights || DEFAULT_PROFILE.weights;
   const slider = (key, label, value) => `<label class="weight-control"><span><b>${label}</b><strong data-weight-label="${key}">${value}/10</strong></span><input type="range" name="weight_${key}" min="0" max="10" value="${html(value)}" data-weight="${key}" /></label>`;
   return `<section class="page-head"><div><div class="eyebrow"><span class="eyebrow-line"></span> הגדרות אישיות</div><h1>מה חשוב לך ברכב?</h1><p>הדרישות נשמרות בנפרד לכל משתמש ומשפיעות על ציוני ההתאמה.</p></div><span class="private-badge">${icon("shield", 15)} אישי ופרטי</span></section>
-    <form id="profile-form" class="profile-layout"><div class="profile-main"><section class="form-panel"><div class="panel-heading"><span class="panel-number">01</span><div><h2>דרישות בסיס</h2><p>סינון ההעדפות העיקריות שלך</p></div></div><div class="form-grid two"><label class="field"><span>שם להצגה</span><input name="display_name" value="${html(p.display_name)}" placeholder="איך לפנות אליך?" maxlength="50" /></label><label class="field"><span>תקציב מקסימלי</span><div class="input-with-suffix"><input name="budget_max" type="number" min="0" step="1000" value="${html(p.budget_max)}" /><em>₪</em></div></label><label class="field"><span>שנתון מינימלי</span><input name="year_min" type="number" min="1980" max="2100" value="${html(p.year_min)}" /></label><label class="field"><span>קילומטראז׳ מקסימלי</span><div class="input-with-suffix"><input name="mileage_max" type="number" min="0" step="5000" value="${html(p.mileage_max)}" /><em>ק״מ</em></div></label><label class="field"><span>מספר בעלים מקסימלי</span><select name="owners_max">${selectOptions(["1", "2", "3", "4", "5"], String(p.owners_max))}</select></label><label class="field"><span>סוג רכב מועדף</span><select name="body_type">${selectOptions(["משפחתית", "סופר מיני", "קרוסאובר", "רכב פנאי", "האצ׳בק", "סדאן", "סטיישן", "קופה", "מסחרי"], p.body_type)}</select></label><label class="field"><span>סוג הנעה מועדף</span><select name="fuel_type">${selectOptions(["בנזין", "דיזל", "היברידי", "היברידי נטען", "חשמלי", "גפ״מ"], p.fuel_type)}</select></label><label class="field"><span>תיבת הילוכים מועדפת</span><select name="transmission">${selectOptions(["אוטומטית", "ידנית", "רובוטית", "רציפה"], p.transmission)}</select></label></div></section>
+    <form id="profile-form" class="profile-layout"><div class="profile-main"><section class="form-panel"><div class="panel-heading"><span class="panel-number">01</span><div><h2>דרישות בסיס</h2><p>סינון ההעדפות העיקריות שלך</p></div></div><div class="form-grid two"><label class="field"><span>שם להצגה</span><input name="display_name" value="${html(p.display_name)}" placeholder="איך לפנות אליך?" maxlength="50" /></label><label class="field"><span>תקציב מקסימלי</span><div class="input-with-suffix"><input name="budget_max" type="number" min="0" step="1000" value="${html(p.budget_max)}" /><em>₪</em></div></label><label class="field"><span>שנתון מינימלי</span><input name="year_min" type="number" min="1980" max="2100" value="${html(p.year_min)}" /></label><label class="field"><span>קילומטראז׳ מקסימלי</span><div class="input-with-suffix"><input name="mileage_max" type="number" min="0" step="5000" value="${html(p.mileage_max)}" /><em>ק״מ</em></div></label><label class="field"><span>מספר בעלים מקסימלי</span><select name="owners_max">${selectOptions(["1", "2", "3", "4", "5"], String(p.owners_max))}</select></label>${multiPick("body_type", "סוג רכב מועדף", ["משפחתית", "סופר מיני", "קרוסאובר", "רכב פנאי", "האצ׳בק", "סדאן", "סטיישן", "קופה", "מסחרי"], p.body_type, true)}${multiPick("fuel_type", "סוג הנעה מועדף", ["בנזין", "דיזל", "היברידי", "היברידי נטען", "חשמלי", "גפ״מ"], p.fuel_type, true)}${multiPick("transmission", "תיבת הילוכים מועדפת", ["אוטומטית", "ידנית", "רובוטית", "רציפה"], p.transmission, true)}${multiPick("fav_make", "יצרנים אהובים", [...new Set([...state.cars.map((car) => car.make), ...state.favMakes].filter(Boolean))].sort((a, b) => a.localeCompare(b, "he")), [...state.favMakes], true)}</div></section>
       <section class="form-panel"><div class="panel-heading"><span class="panel-number">02</span><div><h2>מה מקבל יותר משקל?</h2><p>הזז את הסרגלים כדי להתאים את חישוב הציון</p></div></div><div class="weights-grid">${slider("reliability", "אמינות", weights.reliability)}${slider("economy", "צריכת דלק", weights.economy)}${slider("safety", "בטיחות", weights.safety)}${slider("maintenance", "עלויות אחזקה", weights.maintenance)}${slider("performance", "ביצועים", weights.performance)}</div></section>
       <section class="form-panel"><div class="panel-heading"><span class="panel-number">03</span><div><h2>דגמים ופרטים לפסילה</h2><p>הוסף מילות מפתח שלא תרצה לראות בציון גבוה</p></div></div><label class="field"><span>מילים או דגמים, מופרדים בפסיק</span><input name="excluded_terms" value="${html((p.excluded_terms || []).join(", "))}" placeholder="לדוגמה: מנוע 1.2, דגם מסוים" /></label><div class="form-hint">רכב שתואם למילה מהרשימה יקבל הפחתה בציון. אפשר לערוך את הפרופיל בכל עת.</div></section>
       <section class="form-panel"><div class="panel-heading"><span class="panel-number">04</span><div><h2>שמירת מועדפים</h2><p>איפה לשמור את הרכבים שסימנת בלב</p></div></div>${state.cloud ? `<div class="segmented wide" role="radiogroup" aria-label="מיקום שמירת מועדפים"><button type="button" role="radio" aria-checked="${state.favoritesMode === "cloud"}" class="${state.favoritesMode === "cloud" ? "on" : ""}" data-fav-mode="cloud">${icon("shield", 15)} בחשבון (Supabase)</button><button type="button" role="radio" aria-checked="${state.favoritesMode === "local"}" class="${state.favoritesMode === "local" ? "on" : ""}" data-fav-mode="local">${icon("download", 15)} במכשיר הזה</button></div><div class="form-hint">בחשבון — מסונכרן בין מכשירים. במכשיר — נשמר ב-localStorage של הדפדפן בלבד. במעבר לחשבון, המועדפים מהמכשיר מתווספים אליו.</div>` : `<div class="form-hint">${icon("download", 15)} במצב הדגמה המועדפים נשמרים ב-localStorage של הדפדפן. אחרי חיבור Supabase תוכלו לבחור לסנכרן אותם לחשבון.</div>`}</section>
@@ -819,7 +828,7 @@ async function saveProfile(form) {
     year_min: Number(data.get("year_min")) || 0,
     mileage_max: Number(data.get("mileage_max")) || 0,
     owners_max: Number(data.get("owners_max")) || 1,
-    body_type: String(data.get("body_type") || ""), fuel_type: String(data.get("fuel_type") || ""), transmission: String(data.get("transmission") || ""),
+    body_type: data.getAll("body_type").join(","), fuel_type: data.getAll("fuel_type").join(","), transmission: data.getAll("transmission").join(","),
     weights: Object.fromEntries(["reliability", "economy", "safety", "maintenance", "performance"].map((key) => [key, Number(data.get(`weight_${key}`)) || 0])),
     excluded_terms: String(data.get("excluded_terms") || "").split(",").map((term) => term.trim()).filter(Boolean),
   };
@@ -830,6 +839,9 @@ async function saveProfile(form) {
       if (error) throw error;
     }
     state.profile = next;
+    state.favMakes = new Set(data.getAll("fav_make"));
+    if (!state.favMakes.size) state.onlyFavMakes = false;
+    savePrefs();
     saveLocal();
     state.busy = false;
     render();

@@ -489,3 +489,14 @@ input[type="range"]::-moz-range-thumb { width: 15px; height: 15px; border-radius
 .site-search h3 { margin: 0 0 2px; font-size: 1rem; }
 .site-search p { margin: 0; font-size: .85rem; opacity: .7; max-width: 46ch; }
 .site-search .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.multi-field { border: 0; padding: 0; margin: 0; min-width: 0; }
+.multi-field.wide-field { grid-column: 1 / -1; }
+.multi-field > span { display: block; margin-bottom: 6px; }
+.multi-field small { opacity: .6; font-weight: 400; }
+.multi-field .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip-check { position: relative; cursor: pointer; }
+.chip-check input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+.chip-check span { display: inline-block; padding: 6px 14px; border-radius: 999px; border: 1px solid rgba(128,128,128,.4); font-size: .9rem; }
+.chip-check input:checked + span { background: #1f9d6b; border-color: #1f9d6b; color: #fff; font-weight: 700; }
+.chip-check input:focus-visible + span { outline: 2px solid currentColor; outline-offset: 2px; }
