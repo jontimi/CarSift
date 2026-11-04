@@ -914,6 +914,21 @@ function render() {
   document.body.classList.toggle("no-scroll", Boolean(state.modal || state.filtersOpen));
 }
 
+const isVehicleLicense = (text) => /רישיון\s*רכב|מועד\s*עליה\s*לכביש|מספר\s*שילדה/.test(String(text || ""));
+
+function parseVehicleLicense(cleaned, result) {
+  const onRoad = cleaned.match(/(?:עליה\s*לכביש|מועד\s*עליה)[^\d\n]{0,12}(0?[1-9]|1[0-2])\s*\/\s*(19[89]\d|20[0-3]\d)/) || cleaned.match(/(?<![\d\/])(0?[1-9]|1[0-2])\/(19[89]\d|20[0-3]\d)(?![\d\/])/);
+  if (onRoad) result.year = Number(onRoad[2]);
+  const maker = detectMake(cleaned);
+  if (maker) result.make = maker.make;
+  const model = cleaned.match(/(?<![A-Za-z0-9])[A-Z]{1,3}-\d{1,3}(?![A-Za-z0-9])/);
+  if (model) result.model = model[0];
+  const trim = cleaned.match(/\b(COMFORT|PREMIUM|LUXURY|EXECUTIVE|INSTYLE|URBAN|STYLE|COOL|ACTIVE|TREND|SPORT|PRIME|INTENSE|ELEGANCE|EXCLUSIVE)\b/i);
+  if (trim) result.trim = trim[1][0].toUpperCase() + trim[1].slice(1).toLowerCase();
+  const fuel = ["היברידי נטען", "היברידי", "חשמלי", "דיזל", "בנזין", "גפ״מ"].find((value) => cleaned.includes(value));
+  if (fuel) result.fuel_type = fuel;
+}
+
 function parseListingText(text) {
   const result = {};
   const cleaned = String(text || "").replace(/[‎‏‪-‮]/g, "").replace(/ /g, " ");
@@ -922,10 +937,17 @@ function parseListingText(text) {
   const normalized = noPhones.replace(/(\d)[,٬](\d{3})/g, "$1$2");
   const lines = normalized.split(/\n+/).map((line) => line.trim()).filter(Boolean);
   const hasMoneyWord = (line) => /מחיר|₪|שח|ש"ח|ש״ח|מבוקש/.test(line);
-  for (const line of lines) {
-    if (!hasMoneyWord(line)) continue;
-    const nums = (line.match(/\d{4,7}/g) || []).map(Number).filter((n) => n >= 3000 && n <= 5000000 && !(n >= 1980 && n <= 2035 && !/₪|שח|ש"ח|ש״ח/.test(line)));
-    if (nums.length) { result.price_ils = nums[0]; break; }
+  const license = isVehicleLicense(cleaned);
+  if (!license) {
+    for (const line of lines) {
+      if (!hasMoneyWord(line) || /תשלום|אגרה|זיכוי|\bסך\b/.test(line)) continue;
+      const hits = [
+        ...[...line.matchAll(/(\d{4,7})\s*(?:₪|ש"ח|ש״ח|ש'ח|שח)/g)].map((m) => ({ n: Number(m[1]), symbol: true })),
+        ...[...line.matchAll(/(?:מחיר[^\d\n]{0,15}|₪\s*)(\d{4,7})/g)].map((m) => ({ n: Number(m[1]), symbol: false })),
+      ];
+      const ok = hits.find(({ n, symbol }) => n >= 3000 && n <= 5000000 && (symbol || !(n >= 1980 && n <= 2035)));
+      if (ok) { result.price_ils = ok.n; break; }
+    }
   }
   const km = normalized.match(/(\d{1,3}(?:\s\d{3}){1,2}|\d{4,7})\s*(?:[קכ]["״׳'”’]?\s?[מי]{1,2}\b|קילומטר|km|ק"מ|ק״מ|קמ)/i)
     || normalized.match(/(?:ק["״׳'”’]?\s?מ|קילומטראז׳?|קילומטרז'?|מד\s?אוץ|km)\s*[:\-]?\s*(\d{1,3}(?:\s\d{3}){1,2}|\d{4,7})/i);
@@ -941,6 +963,17 @@ function parseListingText(text) {
     }
   }
   if (!result.mileage_km) {
+    const withComma = new Set();
+    for (const line of cleaned.split(/\n+/)) {
+      if (hasMoneyWord(line) || testLine(line)) continue;
+      for (const m of line.match(/(?<![\d,.])\d{2,3},\d{3}(?![\d,])/g) || []) {
+        const n = Number(m.replace(",", ""));
+        if (n >= 10000 && n <= 400000 && n !== result.price_ils && n !== result.year) withComma.add(n);
+      }
+    }
+    if (withComma.size === 1) result.mileage_km = [...withComma][0];
+  }
+  if (!result.mileage_km && !license) {
     // OCR often mangles the "ק״מ" word. Accept a lone 5-6 digit number that is not the price, year or a test date.
     const used = new Set([result.price_ils, result.year].filter(Boolean).map(String));
     const lone = [];
@@ -953,7 +986,11 @@ function parseListingText(text) {
     }
     if (lone.length === 1) result.mileage_km = lone[0];
   }
-  const owners = normalized.match(/(?:יד|בעלים)\s*(?:מספר)?\s*[:\-]?\s*(\d{1,2})\b/i);
+  if (license) {
+    delete result.owners;
+    parseVehicleLicense(cleaned, result);
+  }
+  const owners = !license && normalized.match(/(?:יד|בעלים)\s*(?:מספר)?\s*[:\-]?\s*(\d{1,2})\b/i);
   if (owners && Number(owners[1]) > 0) result.owners = Number(owners[1]);
   const maker = detectMake(normalized);
   if (maker) {
@@ -964,7 +1001,8 @@ function parseListingText(text) {
     const stop = /^(שמורה|מאוד|שנת|שנתון|יד|טסט|מחיר|למכירה|רכב|במצב|מצוין|חדשה|חדש|אוטומטי|אוטומטית|ידנית|בנזין|דיזל|היברידי|חשמלי)$/;
     const latin = [];
     for (const word of words) { if (/^[A-Za-z0-9][A-Za-z0-9\-+.]*$/.test(word) && latin.length < 2) latin.push(word); else break; }
-    if (latin.length) result.model = latin.join(" ");
+    if (result.model) { /* already read from the licence */ }
+    else if (latin.length) result.model = latin.join(" ");
     else if (words[0] && !stop.test(words[0]) && !/^\d+$/.test(words[0])) result.model = words[0];
   }
   const fuel = ["היברידי נטען", "היברידי", "חשמלי", "דיזל", "בנזין", "גפ״מ"].find((value) => normalized.includes(value));
@@ -983,7 +1021,7 @@ function parseListingText(text) {
 async function preprocessForOcr(file, mode = "contrast") {
   try {
     const bitmap = await createImageBitmap(file);
-    const scale = Math.min(3, Math.max(1, 1600 / bitmap.width));
+    const scale = Math.min(4, Math.max(1, 2400 / bitmap.width));
     const canvas = document.createElement("canvas");
     canvas.width = Math.round(bitmap.width * scale);
     canvas.height = Math.round(bitmap.height * scale);
@@ -1201,7 +1239,7 @@ async function runOcr(file) {
     const fullText = `${first.data.text || ""}\n${second.data.text || ""}`.trim();
     const parsed = parseListingText(fullText);
     state.draft.listing_text = fullText;
-    state.draft.ocrStatus = parsed.mileage_km || state.draft.mileage_km ? "הזיהוי הסתיים. בדוק את הטקסט, חלץ פרטים ותקן את הטופס." : "הזיהוי הסתיים, אבל לא זוהה קילומטראז׳. נא להזין אותו ידנית.";
+    state.draft.ocrStatus = isVehicleLicense(fullText) ? "זוהה רישיון רכב. בו אין מחיר, אז הזינו מחיר ידנית. בדקו את שאר השדות." : (parsed.mileage_km || state.draft.mileage_km ? "הזיהוי הסתיים. בדוק את הטקסט, חלץ פרטים ותקן את הטופס." : "הזיהוי הסתיים, אבל לא זוהה קילומטראז׳. נא להזין אותו ידנית.");
     Object.assign(state.draft, parsed);
     render();
     showToast("הטקסט זוהה במכשיר שלך");
