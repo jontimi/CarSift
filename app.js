@@ -71,6 +71,10 @@ const state = {
   cars: [],
   profile: { ...DEFAULT_PROFILE, weights: { ...DEFAULT_PROFILE.weights } },
   favorites: new Set(),
+  priorities: {},
+  favMakes: new Set(),
+  onlyFavMakes: false,
+  prefsKey: null,
   favoritesMode: "local",
   compareIds: new Set(),
   drawerOpen: false,
@@ -176,6 +180,30 @@ function saveLocal() {
 }
 
 const localFavoritesKey = () => `carsift-favorites-${state.user?.id || "guest"}`;
+
+/* Priorities (1-10 per saved car) and favorite car types (makes) live on this device, per user. */
+const prefsStorageKey = () => `carsift-prefs-${state.user?.id || "guest"}`;
+function ensurePrefs() {
+  const key = prefsStorageKey();
+  if (state.prefsKey === key) return;
+  state.prefsKey = key;
+  state.priorities = {};
+  state.favMakes = new Set();
+  try {
+    const saved = JSON.parse(localStorage.getItem(key) || "null");
+    if (saved) {
+      for (const [id, value] of Object.entries(saved.priorities || {})) {
+        const n = Math.round(Number(value));
+        if (n >= 1 && n <= 10) state.priorities[id] = n;
+      }
+      state.favMakes = new Set((saved.favMakes || []).filter((m) => typeof m === "string"));
+    }
+  } catch { /* ignore broken storage */ }
+}
+function savePrefs() {
+  try { localStorage.setItem(prefsStorageKey(), JSON.stringify({ priorities: state.priorities, favMakes: [...state.favMakes] })); } catch { /* storage blocked */ }
+}
+const priorityOf = (id) => state.priorities[id] || 0;
 
 function readLocalFavorites() {
   try { return new Set(JSON.parse(localStorage.getItem(localFavoritesKey()) || "[]")); } catch { return new Set(); }
@@ -420,6 +448,7 @@ const SORTS = {
   price_desc: ["מחיר: מהגבוה לנמוך", (a, b) => (b.price_ils ?? -1) - (a.price_ils ?? -1)],
   year_desc: ["שנתון: החדש ביותר", (a, b) => (b.year ?? 0) - (a.year ?? 0)],
   km_asc: ["קילומטראז׳: הנמוך ביותר", (a, b) => (a.mileage_km ?? Infinity) - (b.mileage_km ?? Infinity)],
+  priority: ["עדיפות: 10 עד 1", (a, b) => priorityOf(b.id) - priorityOf(a.id) || scoreCar(b) - scoreCar(a)],
   newest: ["נוספו לאחרונה", (a, b) => String(b.created_at).localeCompare(String(a.created_at))],
 };
 
@@ -427,6 +456,7 @@ function visibleCars(favoritesOnly = state.view === "favorites") {
   const query = state.search.trim().toLowerCase();
   return state.cars
     .filter((car) => !favoritesOnly || state.favorites.has(car.id))
+    .filter((car) => !state.onlyFavMakes || !state.favMakes.size || state.favMakes.has(car.make))
     .filter(matchesFilters)
     .filter((car) => !query || `${car.title} ${car.make} ${car.model} ${car.trim} ${car.year || ""} ${car.city} ${car.body_type}`.toLowerCase().includes(query))
     .sort((SORTS[state.sort] || SORTS.score)[1]);
@@ -502,7 +532,7 @@ function renderCars(favoritesOnly = false) {
     <div class="browse-layout">
       <div class="filter-backdrop ${state.filtersOpen ? "open" : ""}" data-action="toggle-filters"></div>
       <aside id="filter-panel" class="filter-panel ${state.filtersOpen ? "open" : ""}" aria-label="סינון רכבים">${renderFilterPanel()}</aside>
-      <section class="listing-toolbar"><div class="toolbar-title"><div><h2>${favoritesOnly ? "הרכבים ששמרת" : "כל הרכבים"}</h2><span><b data-result-count>${number(visibleCars(favoritesOnly).length)}</b> תוצאות</span></div><div class="toolbar-controls"><button type="button" class="secondary-button filter-open" data-action="toggle-filters">${icon("menu", 17)} סינון${active ? ` <span class="nav-count" data-filter-count>${active}</span>` : ""}</button><label class="search-box">${icon("search", 18)}<input id="car-search" type="search" placeholder="חיפוש דגם, שנה או עיר…" value="${html(state.search)}" autocomplete="off" /></label><select class="sort-select" id="car-sort" aria-label="מיון">${Object.entries(SORTS).map(([key, [label]]) => `<option value="${key}" ${state.sort === key ? "selected" : ""}>${label}</option>`).join("")}</select></div></div>
+      ${renderFavTypes()}<section class="listing-toolbar"><div class="toolbar-title"><div><h2>${favoritesOnly ? "הרכבים ששמרת" : "כל הרכבים"}</h2><span><b data-result-count>${number(visibleCars(favoritesOnly).length)}</b> תוצאות</span></div><div class="toolbar-controls"><button type="button" class="secondary-button filter-open" data-action="toggle-filters">${icon("menu", 17)} סינון${active ? ` <span class="nav-count" data-filter-count>${active}</span>` : ""}</button><label class="search-box">${icon("search", 18)}<input id="car-search" type="search" placeholder="חיפוש דגם, שנה או עיר…" value="${html(state.search)}" autocomplete="off" /></label><select class="sort-select" id="car-sort" aria-label="מיון">${Object.entries(SORTS).map(([key, [label]]) => `<option value="${key}" ${state.sort === key ? "selected" : ""}>${label}</option>`).join("")}</select></div></div>
         <div id="results">${renderResults(favoritesOnly)}</div>
       </section>
     </div>`;
@@ -512,6 +542,17 @@ function featurePreview(car, max = 3) {
   if (!car.features.length) return "";
   const shown = car.features.slice(0, max).map((key) => `<span>${html(FEATURE_LABEL[key])}</span>`).join("");
   return `<div class="feature-preview">${shown}${car.features.length > max ? `<span class="more">+${car.features.length - max}</span>` : ""}</div>`;
+}
+
+function priorityControl(id) {
+  const current = priorityOf(id);
+  return `<label class="prio-row"><span>עדיפות (1–10)</span><select data-prio data-id="${html(id)}" aria-label="עדיפות מ-1 עד 10"><option value="0" ${current ? "" : "selected"}>לא נקבע</option>${Array.from({ length: 10 }, (_, i) => 10 - i).map((n) => `<option value="${n}" ${current === n ? "selected" : ""}>${n}${n === 10 ? " – הכי חשוב" : n === 1 ? " – הכי פחות" : ""}</option>`).join("")}</select></label>`;
+}
+
+function renderFavTypes() {
+  const makes = [...new Set(state.cars.map((car) => car.make).filter(Boolean))].sort((a, b) => a.localeCompare(b, "he"));
+  if (!makes.length) return "";
+  return `<section class="fav-types"><div class="fav-types-head"><div><h3>סוגי הרכב האהובים עליי</h3><p>בחר כמה יצרנים שמעניינים אותך. רכבים מהם יסומנו בכוכב.</p></div>${state.favMakes.size ? `<button type="button" class="chip ${state.onlyFavMakes ? "on" : ""}" aria-pressed="${state.onlyFavMakes}" data-only-fav-makes>${state.onlyFavMakes ? icon("check", 13) : ""}<span>הצג רק אותם</span></button>` : ""}</div><div class="chip-row">${makes.map((make) => { const on = state.favMakes.has(make); return `<button type="button" class="chip ${on ? "on" : ""}" aria-pressed="${on}" data-fav-make="${html(make)}">${on ? icon("heart", 13) : ""}<span>${html(make)}</span></button>`; }).join("")}</div></section>`;
 }
 
 function renderCarCard(car) {
@@ -524,8 +565,9 @@ function renderCarCard(car) {
     <div class="car-card-body"><div class="car-title-row"><div><h3><button class="title-link" data-action="details" data-id="${html(car.id)}">${html(car.title)}</button></h3><p>${html([car.trim, car.engine && `${car.engine} ל׳`].filter(Boolean).join(" · ") || car.make || "פרטים נוספים במודעה")}</p></div><div class="score-ring ${tone}" style="--score:${score}" title="${html(label)}"><strong>${score}</strong><small>התאמה</small></div></div>
       <div class="car-price">${money(car.price_ils)}</div>
       <div class="car-facts"><div><span>שנתון</span><b>${html(car.year || "—")}</b></div><div><span>ק״מ</span><b>${car.mileage_km != null ? number(car.mileage_km) : "—"}</b></div><div><span>יד</span><b>${car.owners ? number(car.owners) : "—"}</b></div></div>
-      <div class="car-tags"><span>${html(car.fuel_type || "דלק לא צוין")}</span><span>${html(car.transmission || "גיר לא צוין")}</span></div>
+      <div class="car-tags">${state.favMakes.has(car.make) ? `<span class="my-type">★ מהסוגים שלי</span>` : ""}<span>${html(car.fuel_type || "דלק לא צוין")}</span><span>${html(car.transmission || "גיר לא צוין")}</span></div>
       ${featurePreview(car)}
+      ${fav ? priorityControl(car.id) : ""}
       <div class="car-card-actions"><button class="text-button" data-action="details" data-id="${html(car.id)}">פרטים מלאים ${icon("arrow", 14)}</button><button class="compare-toggle ${selected ? "selected" : ""}" aria-pressed="${selected}" data-action="compare-toggle" data-id="${html(car.id)}">${selected ? icon("check", 15) : icon("compare", 15)} ${selected ? "בהשוואה" : "השוואה"}</button></div>
     </div></article>`;
 }
@@ -642,7 +684,7 @@ function renderDetailsModal() {
     <div class="detail-section"><h3>הערכה ראשונית</h3><div class="detail-ratings">${ratings.map(([label, key]) => `<div><span>${label}</span>${rating(car[key])}</div>`).join("")}</div></div>
     ${car.notes ? `<div class="detail-notes"><b>הערות</b><p>${html(car.notes)}</p></div>` : ""}
     ${car.source_url ? `<a class="source-link" href="${html(car.source_url)}" target="_blank" rel="noopener noreferrer">${icon("link", 16)} פתיחת המודעה המקורית ${icon("arrow", 14)}</a>` : ""}
-    <div class="form-footer modal-footer"><div class="detail-actions"><button class="secondary-button ${fav ? "favorited" : ""}" data-action="favorite" data-id="${html(car.id)}">${icon("heart", 16)} ${fav ? "במועדפים" : "שמירה"}</button><button class="compare-toggle ${inCompare ? "selected" : ""}" data-action="compare-toggle" data-id="${html(car.id)}">${icon(inCompare ? "check" : "compare", 15)} ${inCompare ? "בהשוואה" : "השוואה"}</button></div><div class="detail-actions">${canEdit ? `<button class="icon-button danger-button" title="מחיקת רכב" aria-label="מחיקת רכב" data-action="delete-car" data-id="${html(car.id)}">${icon("trash", 17)}</button><button class="secondary-button" data-action="edit-car" data-id="${html(car.id)}">${icon("edit", 16)} עריכה</button>` : ""}<button class="primary-button" data-action="close-modal">סיום</button></div></div></section></div>`;
+    <div class="form-footer modal-footer"><div class="detail-actions">${fav ? priorityControl(car.id) : ""}<button class="secondary-button ${fav ? "favorited" : ""}" data-action="favorite" data-id="${html(car.id)}">${icon("heart", 16)} ${fav ? "במועדפים" : "שמירה"}</button><button class="compare-toggle ${inCompare ? "selected" : ""}" data-action="compare-toggle" data-id="${html(car.id)}">${icon(inCompare ? "check" : "compare", 15)} ${inCompare ? "בהשוואה" : "השוואה"}</button></div><div class="detail-actions">${canEdit ? `<button class="icon-button danger-button" title="מחיקת רכב" aria-label="מחיקת רכב" data-action="delete-car" data-id="${html(car.id)}">${icon("trash", 17)}</button><button class="secondary-button" data-action="edit-car" data-id="${html(car.id)}">${icon("edit", 16)} עריכה</button>` : ""}<button class="primary-button" data-action="close-modal">סיום</button></div></div></section></div>`;
 }
 
 function renderImportModal() {
@@ -659,6 +701,7 @@ function renderDeniedGate() {
 }
 
 function render() {
+  ensurePrefs();
   const y = window.scrollY;
   const filterScroll = document.querySelector(".filter-scroll")?.scrollTop || 0;
   app.innerHTML = renderShell();
@@ -788,7 +831,7 @@ async function toggleFavorite(id) {
         if (error) throw error;
       }
     }
-    if (wasFavorite) state.favorites.delete(id); else state.favorites.add(id);
+    if (wasFavorite) { state.favorites.delete(id); delete state.priorities[id]; savePrefs(); } else state.favorites.add(id);
     saveLocal();
     render();
     showToast(wasFavorite ? "הוסר מהמועדפים" : "נשמר במועדפים");
@@ -803,7 +846,7 @@ function openCarModal(car = null) {
 }
 
 function exportData() {
-  const payload = { app: "CarSift", version: 1, exportedAt: new Date().toISOString(), cars: state.cars, profile: state.profile, favorites: [...state.favorites] };
+  const payload = { app: "CarSift", version: 1, exportedAt: new Date().toISOString(), cars: state.cars, profile: state.profile, favorites: [...state.favorites], priorities: state.priorities, favMakes: [...state.favMakes] };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -835,6 +878,11 @@ async function importPayload(payload) {
   }
   const importedIds = new Set(state.cars.map((car) => car.id));
   const favorites = new Set(payload.favorites || []);
+  if (payload.priorities && typeof payload.priorities === "object") {
+    for (const [id, value] of Object.entries(payload.priorities)) { const n = Math.round(Number(value)); if (importedIds.has(id) && n >= 1 && n <= 10) state.priorities[id] = n; }
+  }
+  if (Array.isArray(payload.favMakes)) payload.favMakes.filter((m) => typeof m === "string").forEach((m) => state.favMakes.add(m));
+  savePrefs();
   state.favorites = new Set([...state.favorites, ...[...favorites].filter((id) => importedIds.has(id))]);
   if (state.cloud && state.favoritesMode === "cloud" && state.favorites.size) {
     const rows = [...favorites].filter((id) => importedIds.has(id)).map((car_id) => ({ user_id: state.user.id, car_id }));
@@ -954,11 +1002,23 @@ function updatePriceRange(changed) {
 }
 
 app.addEventListener("click", async (event) => {
+  const favMake = event.target.closest("[data-fav-make]");
+  if (favMake) {
+    const make = favMake.dataset.favMake;
+    if (state.favMakes.has(make)) state.favMakes.delete(make); else state.favMakes.add(make);
+    if (!state.favMakes.size) state.onlyFavMakes = false;
+    savePrefs();
+    render();
+    return;
+  }
+  if (event.target.closest("[data-only-fav-makes]")) { state.onlyFavMakes = !state.onlyFavMakes; render(); return; }
   const viewButton = event.target.closest("[data-view]");
   if (viewButton) {
     event.preventDefault();
     if (viewButton.disabled) return;
     state.view = viewButton.dataset.view;
+    if (state.view === "favorites" && state.sort === "score") state.sort = "priority";
+    else if (state.view !== "favorites" && state.sort === "priority") state.sort = "score";
     state.drawerOpen = false;
     state.filtersOpen = false;
     render();
@@ -1077,6 +1137,13 @@ app.addEventListener("input", (event) => {
 
 app.addEventListener("change", async (event) => {
   const target = event.target;
+  if (target.matches("[data-prio]")) {
+    const value = Number(target.value);
+    if (value >= 1 && value <= 10) state.priorities[target.dataset.id] = value; else delete state.priorities[target.dataset.id];
+    savePrefs();
+    render();
+    return;
+  }
   if (target.matches("#car-sort")) { state.sort = target.value; updateCarResults(); }
   if (target.matches("#f-year")) { state.filters.yearMin = Number(target.value) || null; updateCarResults(); }
   if (target.matches("[data-feature-filter]")) { state.filters.features = toggleInList(state.filters.features, target.dataset.featureFilter); updateCarResults({ panel: true }); }

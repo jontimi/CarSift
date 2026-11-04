@@ -474,3 +474,13 @@ input[type="range"]::-moz-range-thumb { width: 15px; height: 15px; border-radius
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* Favorite car types + priority 1-10 */
+.fav-types { background: var(--surface, #fff); border: 1px solid rgba(128,128,128,.25); border-radius: 14px; padding: 14px 16px; margin: 0 0 14px; }
+.fav-types-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.fav-types h3 { margin: 0 0 2px; font-size: 1rem; }
+.fav-types p { margin: 0; font-size: .85rem; opacity: .7; }
+.fav-types .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.prio-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 0 0; padding: 8px 10px; border-radius: 10px; background: rgba(128,128,128,.12); font-size: .85rem; font-weight: 600; }
+.prio-row select { font: inherit; padding: 4px 8px; border-radius: 8px; border: 1px solid rgba(128,128,128,.4); background: inherit; color: inherit; max-width: 60%; }
+.car-tags .my-type { background: rgba(240,180,0,.2); color: inherit; font-weight: 700; }
