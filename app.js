@@ -532,7 +532,7 @@ function renderCars(favoritesOnly = false) {
     <div class="browse-layout">
       <div class="filter-backdrop ${state.filtersOpen ? "open" : ""}" data-action="toggle-filters"></div>
       <aside id="filter-panel" class="filter-panel ${state.filtersOpen ? "open" : ""}" aria-label="סינון רכבים">${renderFilterPanel()}</aside>
-      ${renderFavTypes()}<section class="listing-toolbar"><div class="toolbar-title"><div><h2>${favoritesOnly ? "הרכבים ששמרת" : "כל הרכבים"}</h2><span><b data-result-count>${number(visibleCars(favoritesOnly).length)}</b> תוצאות</span></div><div class="toolbar-controls"><button type="button" class="secondary-button filter-open" data-action="toggle-filters">${icon("menu", 17)} סינון${active ? ` <span class="nav-count" data-filter-count>${active}</span>` : ""}</button><label class="search-box">${icon("search", 18)}<input id="car-search" type="search" placeholder="חיפוש דגם, שנה או עיר…" value="${html(state.search)}" autocomplete="off" /></label><select class="sort-select" id="car-sort" aria-label="מיון">${Object.entries(SORTS).map(([key, [label]]) => `<option value="${key}" ${state.sort === key ? "selected" : ""}>${label}</option>`).join("")}</select></div></div>
+      ${renderSiteSearch()}${renderFavTypes()}<section class="listing-toolbar"><div class="toolbar-title"><div><h2>${favoritesOnly ? "הרכבים ששמרת" : "כל הרכבים"}</h2><span><b data-result-count>${number(visibleCars(favoritesOnly).length)}</b> תוצאות</span></div><div class="toolbar-controls"><button type="button" class="secondary-button filter-open" data-action="toggle-filters">${icon("menu", 17)} סינון${active ? ` <span class="nav-count" data-filter-count>${active}</span>` : ""}</button><label class="search-box">${icon("search", 18)}<input id="car-search" type="search" placeholder="חיפוש דגם, שנה או עיר…" value="${html(state.search)}" autocomplete="off" /></label><select class="sort-select" id="car-sort" aria-label="מיון">${Object.entries(SORTS).map(([key, [label]]) => `<option value="${key}" ${state.sort === key ? "selected" : ""}>${label}</option>`).join("")}</select></div></div>
         <div id="results">${renderResults(favoritesOnly)}</div>
       </section>
     </div>`;
@@ -547,6 +547,28 @@ function featurePreview(car, max = 3) {
 function priorityControl(id) {
   const current = priorityOf(id);
   return `<label class="prio-row"><span>עדיפות (1–10)</span><select data-prio data-id="${html(id)}" aria-label="עדיפות מ-1 עד 10"><option value="0" ${current ? "" : "selected"}>לא נקבע</option>${Array.from({ length: 10 }, (_, i) => 10 - i).map((n) => `<option value="${n}" ${current === n ? "selected" : ""}>${n}${n === 10 ? " – הכי חשוב" : n === 1 ? " – הכי פחות" : ""}</option>`).join("")}</select></label>`;
+}
+
+const SEARCH_SITES = [["yad2.co.il", "יד2"], ["winwin.co.il", "WinWin"], ["facebook.com/marketplace", "Facebook Marketplace"], ["", "גוגל"]];
+
+function siteSearchQuery() {
+  const f = state.filters;
+  const models = f.models.map((key) => key.split("|").slice(1).join(" "));
+  const makes = f.makes.filter((make) => !f.models.some((key) => key.split("|")[0] === make));
+  return [...new Set([...makes, ...f.models.map((key) => key.replace("|", " "))])].slice(0, 3).join(" ")
+    + (f.yearMin ? ` ${f.yearMin}` : "") + (models.length || makes.length ? "" : "") ;
+}
+
+function openSiteSearch(site) {
+  const terms = siteSearchQuery() || "רכב משומש";
+  let url;
+  if (site === "facebook.com/marketplace") url = `https://www.facebook.com/marketplace/search/?query=${encodeURIComponent(terms)}`;
+  else url = `https://www.google.com/search?q=${encodeURIComponent((site ? `site:${site} ` : "") + terms + " למכירה")}`;
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
+function renderSiteSearch() {
+  return `<section class="site-search"><div><h3>חיפוש באתרי מודעות</h3><p>פותח חיפוש באתר לפי היצרן, הדגם והשנתון שבחרת בסינון. את המודעה שמצאת אפשר להוסיף כאן עם "הוספת רכב".</p></div><div class="chip-row">${SEARCH_SITES.map(([site, label]) => `<button type="button" class="chip" data-site-search="${html(site)}">${icon("arrow", 13)}<span>${html(label)}</span></button>`).join("")}</div></section>`;
 }
 
 function renderFavTypes() {
@@ -1002,6 +1024,8 @@ function updatePriceRange(changed) {
 }
 
 app.addEventListener("click", async (event) => {
+  const siteSearch = event.target.closest("[data-site-search]");
+  if (siteSearch) { openSiteSearch(siteSearch.dataset.siteSearch); return; }
   const favMake = event.target.closest("[data-fav-make]");
   if (favMake) {
     const make = favMake.dataset.favMake;
