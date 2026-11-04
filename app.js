@@ -647,7 +647,7 @@ function canonicalMake(text) {
   return String(text).trim();
 }
 function detectMake(title) {
-  const t = ` ${String(title || "").toLowerCase()} `;
+  const t = ` ${String(title || "").toLowerCase().replace(/[^\p{L}\p{N}'’.-]+/gu, " ")} `;
   for (const [en, aliases] of MAKE_ALIASES) {
     for (const name of [en, ...aliases]) {
       const needle = name.toLowerCase();
@@ -908,15 +908,43 @@ function render() {
 
 function parseListingText(text) {
   const result = {};
-  const normalized = String(text || "").replace(/\u00a0/g, " ").replace(/[,٬]/g, "");
-  const price = normalized.match(/(?:מחיר|₪|שח|ש"ח)\s*[:\-]?\s*(\d{4,7})|\b(\d{4,7})\s*(?:₪|שח|ש"ח)\b/i);
-  if (price) result.price_ils = Number(price[1] || price[2]);
-  const km = normalized.match(/(\d{1,3}(?:\s?\d{3}){1,2}|\d{4,7})\s*(?:ק"מ|קמ|קילומטר)/i);
+  const cleaned = String(text || "").replace(/[‎‏‪-‮]/g, "").replace(/ /g, " ");
+  // Phone numbers must never be read as prices or mileage.
+  const noPhones = cleaned.replace(/\+?972[-\s]?\d{1,2}[-\s]?\d{7}/g, " ").replace(/\b0\d{1,2}[-\s]?\d{7}\b/g, " ");
+  const normalized = noPhones.replace(/(\d)[,٬](\d{3})/g, "$1$2");
+  const lines = normalized.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  const hasMoneyWord = (line) => /מחיר|₪|שח|ש"ח|ש״ח|מבוקש/.test(line);
+  for (const line of lines) {
+    if (!hasMoneyWord(line)) continue;
+    const nums = (line.match(/\d{4,7}/g) || []).map(Number).filter((n) => n >= 3000 && n <= 5000000 && !(n >= 1980 && n <= 2035 && !/₪|שח|ש"ח|ש״ח/.test(line)));
+    if (nums.length) { result.price_ils = nums[0]; break; }
+  }
+  const km = normalized.match(/(\d{1,3}(?:\s\d{3}){1,2}|\d{4,7})\s*(?:ק"מ|ק״מ|קמ|קילומטר|km)/i);
   if (km) result.mileage_km = Number(km[1].replace(/\s/g, ""));
-  const year = normalized.match(/\b(20\d{2}|19\d{2})\b/);
-  if (year) result.year = Number(year[1]);
+  const testLine = (line) => /טסט|עד\s+(?:ינואר|פברואר|מרץ|אפריל|מאי|יוני|יולי|אוגוסט|ספטמבר|אוקטובר|נובמבר|דצמבר)/.test(line);
+  const yearLabeled = normalized.match(/(?:שנת|שנתון|שנה)\s*[:\-]?\s*(20[0-3]\d|19[89]\d)/);
+  if (yearLabeled) result.year = Number(yearLabeled[1]);
+  else {
+    for (const line of lines) {
+      if (testLine(line)) continue;
+      const found = line.match(/\b(20[0-3]\d|19[89]\d)\b/);
+      if (found && !(result.price_ils && String(result.price_ils) === found[1])) { result.year = Number(found[1]); break; }
+    }
+  }
   const owners = normalized.match(/(?:יד|בעלים)\s*(?:מספר)?\s*[:\-]?\s*(\d{1,2})\b/i);
-  if (owners) result.owners = Number(owners[1]);
+  if (owners && Number(owners[1]) > 0) result.owners = Number(owners[1]);
+  const maker = detectMake(normalized);
+  if (maker) {
+    result.make = maker.make;
+    const at = normalized.toLowerCase().indexOf(maker.matched.toLowerCase());
+    const after = normalized.slice(at + maker.matched.length).split(/\n/)[0].trim();
+    const words = after.split(/\s+/).filter(Boolean);
+    const stop = /^(שמורה|מאוד|שנת|שנתון|יד|טסט|מחיר|למכירה|רכב|במצב|מצוין|חדשה|חדש|אוטומטי|אוטומטית|ידנית|בנזין|דיזל|היברידי|חשמלי)$/;
+    const latin = [];
+    for (const word of words) { if (/^[A-Za-z0-9][A-Za-z0-9\-+.]*$/.test(word) && latin.length < 2) latin.push(word); else break; }
+    if (latin.length) result.model = latin.join(" ");
+    else if (words[0] && !stop.test(words[0]) && !/^\d+$/.test(words[0])) result.model = words[0];
+  }
   const fuel = ["היברידי נטען", "היברידי", "חשמלי", "דיזל", "בנזין", "גפ״מ"].find((value) => normalized.includes(value));
   if (fuel) result.fuel_type = fuel;
   const transmission = ["אוטומטית", "ידנית", "רובוטית", "רציפה"].find((value) => normalized.includes(value));
@@ -927,6 +955,32 @@ function parseListingText(text) {
   const features = FEATURES.filter((feature) => feature.match.some((word) => lower.includes(word.toLowerCase()))).map((feature) => feature.key);
   if (features.length) result.features = features;
   return result;
+}
+
+/* Dark-mode chat screenshots confuse OCR: upscale, grayscale, invert when dark, then stretch contrast. */
+async function preprocessForOcr(file) {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(3, Math.max(1, 1600 / bitmap.width));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const px = img.data;
+    let sum = 0;
+    for (let i = 0; i < px.length; i += 4) { const g = px[i] * 0.299 + px[i + 1] * 0.587 + px[i + 2] * 0.114; px[i] = g; sum += g; }
+    const invert = sum / (px.length / 4) < 128;
+    for (let i = 0; i < px.length; i += 4) {
+      let g = invert ? 255 - px[i] : px[i];
+      g = Math.max(0, Math.min(255, (g - 110) * 2.2 + 128));
+      px[i] = px[i + 1] = px[i + 2] = g;
+    }
+    ctx.putImageData(img, 0, 0);
+    return canvas;
+  } catch { return file; }
 }
 
 function carFromForm(form) {
@@ -1118,7 +1172,7 @@ async function runOcr(file) {
       const el = document.querySelector("#ocr-status");
       if (el && message.status) el.textContent = message.progress != null ? `${message.status} · ${Math.round(message.progress * 100)}%` : message.status;
     } });
-    const { data } = await worker.recognize(file);
+    const { data } = await worker.recognize(await preprocessForOcr(file));
     await worker.terminate();
     state.draft.listing_text = data.text || "";
     state.draft.ocrStatus = "הזיהוי הסתיים. בדוק את הטקסט, חלץ פרטים ותקן את הטופס.";
