@@ -506,3 +506,11 @@ input[type="range"]::-moz-range-thumb { width: 15px; height: 15px; border-radius
 .import-how ol { margin: 8px 0; padding-inline-start: 20px; line-height: 1.7; }
 .import-how .hint { margin: 4px 0 0; font-size: .8rem; opacity: .7; }
 a.bookmarklet { display: inline-block; padding: 3px 12px; border-radius: 999px; background: #1f9d6b; color: #fff; font-weight: 700; text-decoration: none; cursor: grab; }
+
+.priority-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.priority-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid rgba(128,128,128,.3); border-radius: 12px; background: rgba(128,128,128,.06); }
+.priority-item .rank { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: #1f9d6b; color: #fff; font-weight: 800; }
+.priority-item b { flex: 1; }
+.priority-item .move { display: flex; gap: 6px; }
+.priority-item .move button { width: 34px; height: 34px; font-size: 1.1rem; border: 1px solid rgba(128,128,128,.35); border-radius: 8px; background: transparent; color: inherit; cursor: pointer; }
+.priority-item .move button:hover { background: rgba(128,128,128,.15); }

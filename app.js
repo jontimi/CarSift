@@ -821,13 +821,21 @@ function selectOptions(values, selected = "", placeholder = "לא משנה") {
   return `<option value="">${placeholder}</option>${values.map((value) => `<option value="${html(value)}" ${selected === value ? "selected" : ""}>${html(value)}</option>`).join("")}`;
 }
 
+const CRITERIA = [["reliability", "אמינות"], ["economy", "צריכת דלק"], ["safety", "בטיחות"], ["maintenance", "עלויות אחזקה"], ["performance", "ביצועים"]];
+const RANK_WEIGHTS = [10, 8, 6, 4, 2];
+
+function renderPriorityOrder(weights) {
+  const ordered = [...CRITERIA].sort((a, b) => (Number(weights[b[0]]) || 0) - (Number(weights[a[0]]) || 0));
+  return `<ol class="priority-list" id="priority-list">${ordered.map(([key, label], index) => `<li class="priority-item" data-crit="${key}"><span class="rank">${index + 1}</span><b>${label}</b><span class="move"><button type="button" class="icon-button" data-move="up" aria-label="הזזה למעלה">↑</button><button type="button" class="icon-button" data-move="down" aria-label="הזזה למטה">↓</button></span><input type="hidden" name="weight_${key}" value="${RANK_WEIGHTS[index]}" /></li>`).join("")}</ol>`;
+}
+
 function renderProfile() {
   const p = state.profile;
   const weights = p.weights || DEFAULT_PROFILE.weights;
   const slider = (key, label, value) => `<label class="weight-control"><span><b>${label}</b><strong data-weight-label="${key}">${value}/10</strong></span><input type="range" name="weight_${key}" min="0" max="10" value="${html(value)}" data-weight="${key}" /></label>`;
   return `<section class="page-head"><div><div class="eyebrow"><span class="eyebrow-line"></span> הגדרות אישיות</div><h1>מה חשוב לך ברכב?</h1><p>הדרישות נשמרות בנפרד לכל משתמש ומשפיעות על ציוני ההתאמה.</p></div><span class="private-badge">${icon("shield", 15)} אישי ופרטי</span></section>
     <form id="profile-form" class="profile-layout"><div class="profile-main"><section class="form-panel"><div class="panel-heading"><span class="panel-number">01</span><div><h2>דרישות בסיס</h2><p>סינון ההעדפות העיקריות שלך</p></div></div><div class="form-grid two"><label class="field"><span>שם להצגה</span><input name="display_name" value="${html(p.display_name)}" placeholder="איך לפנות אליך?" maxlength="50" /></label><label class="field"><span>תקציב מקסימלי</span><div class="input-with-suffix"><input name="budget_max" type="number" min="0" step="1000" value="${html(p.budget_max)}" /><em>₪</em></div></label><label class="field"><span>שנתון מינימלי</span><input name="year_min" type="number" min="1980" max="2100" value="${html(p.year_min)}" /></label><label class="field"><span>קילומטראז׳ מקסימלי</span><div class="input-with-suffix"><input name="mileage_max" type="number" min="0" step="5000" value="${html(p.mileage_max)}" /><em>ק״מ</em></div></label><label class="field"><span>מספר בעלים מקסימלי</span><select name="owners_max">${selectOptions(["1", "2", "3", "4", "5"], String(p.owners_max))}</select></label>${multiPick("body_type", "סוג רכב מועדף", ["משפחתית", "סופר מיני", "קרוסאובר", "רכב פנאי", "האצ׳בק", "סדאן", "סטיישן", "קופה", "מסחרי"], p.body_type, true)}${multiPick("fuel_type", "סוג הנעה מועדף", ["בנזין", "דיזל", "היברידי", "היברידי נטען", "חשמלי", "גפ״מ"], p.fuel_type, true)}${multiPick("transmission", "תיבת הילוכים מועדפת", ["אוטומטית", "ידנית", "רובוטית", "רציפה"], p.transmission, true)}${multiPick("fav_make", "יצרנים אהובים", allMakes(), [...state.favMakes], true)}</div></section>
-      <section class="form-panel"><div class="panel-heading"><span class="panel-number">02</span><div><h2>מה מקבל יותר משקל?</h2><p>הזז את הסרגלים כדי להתאים את חישוב הציון</p></div></div><div class="weights-grid">${slider("reliability", "אמינות", weights.reliability)}${slider("economy", "צריכת דלק", weights.economy)}${slider("safety", "בטיחות", weights.safety)}${slider("maintenance", "עלויות אחזקה", weights.maintenance)}${slider("performance", "ביצועים", weights.performance)}</div></section>
+      <section class="form-panel"><div class="panel-heading"><span class="panel-number">02</span><div><h2>מה הכי חשוב לך?</h2><p>סדרו לפי עדיפות: הראשון ברשימה הכי חשוב. השתמשו בחצים כדי להזיז.</p></div></div>${renderPriorityOrder(weights)}</section>
       <section class="form-panel"><div class="panel-heading"><span class="panel-number">03</span><div><h2>דגמים ופרטים לפסילה</h2><p>הוסף מילות מפתח שלא תרצה לראות בציון גבוה</p></div></div><label class="field"><span>מילים או דגמים, מופרדים בפסיק</span><input name="excluded_terms" value="${html((p.excluded_terms || []).join(", "))}" placeholder="לדוגמה: מנוע 1.2, דגם מסוים" /></label><div class="form-hint">רכב שתואם למילה מהרשימה יקבל הפחתה בציון. אפשר לערוך את הפרופיל בכל עת.</div></section>
       <section class="form-panel"><div class="panel-heading"><span class="panel-number">04</span><div><h2>שמירת מועדפים</h2><p>איפה לשמור את הרכבים שסימנת בלב</p></div></div>${state.cloud ? `<div class="segmented wide" role="radiogroup" aria-label="מיקום שמירת מועדפים"><button type="button" role="radio" aria-checked="${state.favoritesMode === "cloud"}" class="${state.favoritesMode === "cloud" ? "on" : ""}" data-fav-mode="cloud">${icon("shield", 15)} בחשבון (Supabase)</button><button type="button" role="radio" aria-checked="${state.favoritesMode === "local"}" class="${state.favoritesMode === "local" ? "on" : ""}" data-fav-mode="local">${icon("download", 15)} במכשיר הזה</button></div><div class="form-hint">בחשבון — מסונכרן בין מכשירים. במכשיר — נשמר ב-localStorage של הדפדפן בלבד. במעבר לחשבון, המועדפים מהמכשיר מתווספים אליו.</div>` : `<div class="form-hint">${icon("download", 15)} במצב הדגמה המועדפים נשמרים ב-localStorage של הדפדפן. אחרי חיבור Supabase תוכלו לבחור לסנכרן אותם לחשבון.</div>`}</section>
       <div class="form-footer"><span>העדפות אלה נשמרות בפרופיל שלך בלבד.</span><button class="primary-button" type="submit">שמירת הפרופיל ${icon("check", 17)}</button></div>
@@ -1255,6 +1263,20 @@ function updatePriceRange(changed) {
 }
 
 app.addEventListener("click", async (event) => {
+  const moveBtn = event.target.closest("[data-move]");
+  if (moveBtn) {
+    const item = moveBtn.closest(".priority-item");
+    const list = item?.parentElement;
+    if (!list) return;
+    if (moveBtn.dataset.move === "up" && item.previousElementSibling) list.insertBefore(item, item.previousElementSibling);
+    if (moveBtn.dataset.move === "down" && item.nextElementSibling) list.insertBefore(item.nextElementSibling, item);
+    [...list.children].forEach((li, index) => {
+      li.querySelector(".rank").textContent = String(index + 1);
+      li.querySelector('input[type="hidden"]').value = String(RANK_WEIGHTS[index]);
+    });
+    moveBtn.focus();
+    return;
+  }
   const siteSearch = event.target.closest("[data-site-search]");
   if (siteSearch) { openSiteSearch(siteSearch.dataset.siteSearch); return; }
   const favMake = event.target.closest("[data-fav-make]");
