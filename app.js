@@ -927,7 +927,8 @@ function parseListingText(text) {
     const nums = (line.match(/\d{4,7}/g) || []).map(Number).filter((n) => n >= 3000 && n <= 5000000 && !(n >= 1980 && n <= 2035 && !/₪|שח|ש"ח|ש״ח/.test(line)));
     if (nums.length) { result.price_ils = nums[0]; break; }
   }
-  const km = normalized.match(/(\d{1,3}(?:\s\d{3}){1,2}|\d{4,7})\s*(?:ק"מ|ק״מ|קמ|קילומטר|km)/i);
+  const km = normalized.match(/(\d{1,3}(?:\s\d{3}){1,2}|\d{4,7})\s*(?:[קכ]["״׳'”’]?\s?[מי]{1,2}\b|קילומטר|km|ק"מ|ק״מ|קמ)/i)
+    || normalized.match(/(?:ק["״׳'”’]?\s?מ|קילומטראז׳?|קילומטרז'?|מד\s?אוץ|km)\s*[:\-]?\s*(\d{1,3}(?:\s\d{3}){1,2}|\d{4,7})/i);
   if (km) result.mileage_km = Number(km[1].replace(/\s/g, ""));
   const testLine = (line) => /טסט|עד\s+(?:ינואר|פברואר|מרץ|אפריל|מאי|יוני|יולי|אוגוסט|ספטמבר|אוקטובר|נובמבר|דצמבר)/.test(line);
   const yearLabeled = normalized.match(/(?:שנת|שנתון|שנה)\s*[:\-]?\s*(20[0-3]\d|19[89]\d)/);
@@ -938,6 +939,19 @@ function parseListingText(text) {
       const found = line.match(/\b(20[0-3]\d|19[89]\d)\b/);
       if (found && !(result.price_ils && String(result.price_ils) === found[1])) { result.year = Number(found[1]); break; }
     }
+  }
+  if (!result.mileage_km) {
+    // OCR often mangles the "ק״מ" word. Accept a lone 5-6 digit number that is not the price, year or a test date.
+    const used = new Set([result.price_ils, result.year].filter(Boolean).map(String));
+    const lone = [];
+    for (const line of lines) {
+      if (hasMoneyWord(line) || testLine(line)) continue;
+      for (const m of line.match(/(?<![\d:.])\d{5,6}(?![\d:.])/g) || []) {
+        const n = Number(m);
+        if (n >= 10000 && n <= 400000 && !used.has(m)) lone.push(n);
+      }
+    }
+    if (lone.length === 1) result.mileage_km = lone[0];
   }
   const owners = normalized.match(/(?:יד|בעלים)\s*(?:מספר)?\s*[:\-]?\s*(\d{1,2})\b/i);
   if (owners && Number(owners[1]) > 0) result.owners = Number(owners[1]);
@@ -966,7 +980,7 @@ function parseListingText(text) {
 }
 
 /* Dark-mode chat screenshots confuse OCR: upscale, grayscale, invert when dark, then stretch contrast. */
-async function preprocessForOcr(file) {
+async function preprocessForOcr(file, mode = "contrast") {
   try {
     const bitmap = await createImageBitmap(file);
     const scale = Math.min(3, Math.max(1, 1600 / bitmap.width));
@@ -983,7 +997,7 @@ async function preprocessForOcr(file) {
     const invert = sum / (px.length / 4) < 128;
     for (let i = 0; i < px.length; i += 4) {
       let g = invert ? 255 - px[i] : px[i];
-      g = Math.max(0, Math.min(255, (g - 110) * 2.2 + 128));
+      g = mode === "binary" ? (g > 150 ? 255 : 0) : Math.max(0, Math.min(255, (g - 110) * 2.2 + 128));
       px[i] = px[i + 1] = px[i + 2] = g;
     }
     ctx.putImageData(img, 0, 0);
@@ -1180,11 +1194,15 @@ async function runOcr(file) {
       const el = document.querySelector("#ocr-status");
       if (el && message.status) el.textContent = message.progress != null ? `${message.status} · ${Math.round(message.progress * 100)}%` : message.status;
     } });
-    const { data } = await worker.recognize(await preprocessForOcr(file));
+    // Two passes (soft contrast, then hard black/white) catch digits that one pass drops.
+    const first = await worker.recognize(await preprocessForOcr(file, "contrast"));
+    const second = await worker.recognize(await preprocessForOcr(file, "binary"));
     await worker.terminate();
-    state.draft.listing_text = data.text || "";
-    state.draft.ocrStatus = "הזיהוי הסתיים. בדוק את הטקסט, חלץ פרטים ותקן את הטופס.";
-    Object.assign(state.draft, parseListingText(data.text || ""));
+    const fullText = `${first.data.text || ""}\n${second.data.text || ""}`.trim();
+    const parsed = parseListingText(fullText);
+    state.draft.listing_text = fullText;
+    state.draft.ocrStatus = parsed.mileage_km || state.draft.mileage_km ? "הזיהוי הסתיים. בדוק את הטקסט, חלץ פרטים ותקן את הטופס." : "הזיהוי הסתיים, אבל לא זוהה קילומטראז׳. נא להזין אותו ידנית.";
+    Object.assign(state.draft, parsed);
     render();
     showToast("הטקסט זוהה במכשיר שלך");
   } catch (error) {
